@@ -27,7 +27,7 @@ El presente estudio responde al **Riesgo #3** del documento de arquitectura: *"C
 
 ### Conclusión de costes
 
-A pesar del dimensionamiento corregido (significativamente mayor que la estimación original), **KhaiNet on-premise cuesta un 94% menos que Darktrace** en ambos escenarios. El ROI es de **16x–18x** en on-premise y **6x** en cloud. El coste diferencial real no es la infraestructura, sino el **personal especializado** (ingeniería de red + ML + SOC), que debe contabilizarse en el TCO.
+A pesar del dimensionamiento corregido (significativamente mayor que la estimación original), **KhaiNet on-premise cuesta un 92–93% menos que Darktrace** en infraestructura sola. El ROI es de **13x–15x** en on-premise y **6x** en cloud. El coste diferencial real no es la infraestructura, sino el **personal especializado** (ingeniería de red + ML + SOC), que debe contabilizarse en el TCO.
 
 ### Recomendación
 
@@ -60,6 +60,12 @@ Los plazos de retención están definidos en `docs/compliance-gobernanza.md` (Se
 | Alertas Suricata (eve.json alerts) | **365 días** | OpenSearch |
 | Eventos Suricata (flow, http, dns, tls) | **90 días** ¹ | OpenSearch |
 | Logs Wazuh (syslog, auth, syscheck) | **365 días** | OpenSearch |
+| Alertas de Brain (correlaciones) | **365 días** | OpenSearch |
+| PCAP completo | **30 días** | Almacenamiento dedicado |
+| Kafka topics (bus transitorio) | **48 horas** | Kafka (replicación factor 3) |
+| ClickHouse (analytics, features) | **180 días** | ClickHouse (compresión columnar) |
+| Incidentes confirmados | **5 años** | Archive WORM |
+| Logs de auditoría SOC | **5 años** | Archive WORM |
 
 > ¹ **Eventos Suricata vs Alertas Suricata**: El documento de compliance define "Alertas Suricata (eve.json alerts): 365 días". Este estudio distingue entre **eventos** (todos los registros de eve.json: flow, http, dns, tls) y **alertas** (solo los registros que disparan una regla). Los eventos se retienen 90 días (volumen alto, valor forense decreciente) y las alertas 365 días (volumen bajo, valor forense alto). Esta distinción debería incorporarse al documento de compliance en una futura revisión.
 | Alertas de Brain (correlaciones) | **365 días** | OpenSearch |
@@ -566,7 +572,7 @@ Darktrace cobra por **sensor (appliance)** más módulos opcionales:
 
 > **Nota SRV-01**: Este servidor utiliza el 100% de vCPU y RAM físicos (64/64, 512/512). Los nodos Hot de OpenSearch son los más demandantes. Si se prefiere headroom, se puede dividir en 2 servidores (2× Hot por servidor, 32 vCPU / 256 GB cada uno), aumentando el total a 7 servidores. Alternativamente, se puede reducir a 3 nodos Hot (48 vCPU / 384 GB) aceptando menos throughput de indexación.
 
-> **Asignación orientativa**: En la práctica, Proxmox permite ajustar dinámicamente vCPU y RAM según carga, y la sobresuscripción de CPU es viable cuando las VMs no pican simultáneamente. Se recomienda monitorizar la carga real tras el despliegue y reequilibrar VMs si algún servidor supera el 80% de uso sostenido.
+> **Asignación orientativa**: En la práctica, Proxmox permite ajustar dinámicamente vCPU y RAM según carga, y la sobresuscripción de CPU es viable cuando las VMs no pican simultáneamente. Se recomienda monitorizar la carga real tras el despliegue y reequilibrar VMs si algún servidor supera el 80% de uso sostenido. Para los servidores que operan al 100% de vCPU físicos (SRV-04 mediana, SRV-01 grande), configurar alertas específicas: disparar si el uso de CPU sostenido supera el 85% durante más de 15 minutos, lo que indicaría necesidad de reequilibrar VMs o añadir un servidor adicional.
 
 ### 8.2 Recomendaciones de optimización
 
