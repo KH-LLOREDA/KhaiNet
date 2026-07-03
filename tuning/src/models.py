@@ -317,3 +317,361 @@ class DriftResult(BaseModel):
     threshold: float
     is_drifted: bool
     severity: str = "none"  # none|low|medium|high
+
+
+# ===========================================================================
+# Auto-labeling system — multi-source weak supervision + active learning
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Source-specific alert models (raw input → model)
+# ---------------------------------------------------------------------------
+
+
+class SuricataAlert(BaseModel):
+    """An alert parsed from Suricata's EVE JSON output.
+
+    Suricata generates alerts when its signature rules (ET rules, custom)
+    match network traffic. These are high-confidence positive labels.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    timestamp: datetime
+    src_ip: str  # pseudonymized hash
+    dst_ip: str  # pseudonymized hash
+    src_port: int | None = None
+    dst_port: int | None = None
+    protocol: str = "tcp"
+    alert_signature: str = ""
+    alert_category: str = ""
+    alert_severity: int = 3  # Suricata: 1=high, 2=medium, 3=low
+    rule_id: str = ""
+    mitre_attack_id: str | None = None  # e.g. "T1041"
+    flow_id: str | None = None
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v: Any) -> datetime:
+        return _parse_timestamp(v)
+
+    @property
+    def ts_epoch(self) -> float:
+        return self.timestamp.timestamp()
+
+
+class WazuhAlert(BaseModel):
+    """An alert from Wazuh (HIDS — Host Intrusion Detection System).
+
+    Wazuh monitors endpoints: file integrity, rootkit detection, log analysis,
+    vulnerability detection, and compliance checking.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    timestamp: datetime
+    agent_id: str = ""
+    agent_name: str = ""
+    src_ip: str = ""  # pseudonymized hash (may be empty for host-only events)
+    dst_ip: str = ""
+    rule_id: str = ""
+    rule_level: int = 3  # Wazuh: 0-15, ≥7 is high severity
+    rule_description: str = ""
+    rule_groups: list[str] = Field(default_factory=list)
+    event_type: str = ""  # syscheck, rootcheck, auth, etc.
+    full_log: str = ""
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v: Any) -> datetime:
+        return _parse_timestamp(v)
+
+    @property
+    def ts_epoch(self) -> float:
+        return self.timestamp.timestamp()
+
+
+class MISPEvent(BaseModel):
+    """A threat intelligence indicator from MISP (Malware Information Sharing Platform).
+
+    MISP provides IOCs (Indicators of Compromise): malicious IPs, domains,
+    file hashes, etc. When a network event matches a MISP IOC, it's a
+    high-confidence positive label.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    timestamp: datetime
+    src_ip: str  # pseudonymized hash of the matched IP
+    dst_ip: str = ""  # pseudonymized hash (may be empty)
+    ioc_type: str = ""  # ip-dst, ip-src, domain, url, md5, sha256
+    ioc_value: str = ""  # the actual indicator (pseudonymized)
+    event_id: str = ""
+    event_info: str = ""  # description of the threat
+    threat_level: int = 2  # MISP: 1=high, 2=medium, 3=low, 4=undefined
+    tags: list[str] = Field(default_factory=list)
+    mitre_attack_id: str | None = None
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v: Any) -> datetime:
+        return _parse_timestamp(v)
+
+    @property
+    def ts_epoch(self) -> float:
+        return self.timestamp.timestamp()
+
+
+class BrainCorrelation(BaseModel):
+    """A correlation produced by the Brain component.
+
+    Brain correlates multiple anomaly events across models and maps them to
+    MITRE ATT&CK tactics/techniques. These are medium-confidence positive
+    labels — Brain identifies patterns, but doesn't have ground truth.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    correlation_id: str = Field(default_factory=lambda: str(uuid4()))
+    timestamp: datetime
+    src_ip: str  # pseudonymized hash
+    dst_ip: str = ""  # pseudonymized hash
+    mitre_tactic: str = ""  # e.g. "Exfiltration"
+    mitre_technique: str = ""  # e.g. "T1041 - Exfiltration Over C2 Channel"
+    mitre_attack_id: str = ""  # e.g. "T1041"
+    contributing_events: list[str] = Field(default_factory=list)  # event_ids
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    narrative: str = ""  # Brain's natural-language explanation
+    models_involved: list[str] = Field(default_factory=list)  # IF, AE, HMM
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v: Any) -> datetime:
+        return _parse_timestamp(v)
+
+    @property
+    def ts_epoch(self) -> float:
+        return self.timestamp.timestamp()
+
+
+class AnalystFeedback(BaseModel):
+    """A label provided by a human analyst via active learning.
+
+    The analyst reviews events selected by the active learning module and
+    confirms whether they are true positives or false positives. These are
+    the highest-confidence labels (ground truth from human judgment).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    feedback_id: str = Field(default_factory=lambda: str(uuid4()))
+    timestamp: datetime
+    src_ip: str  # pseudonymized hash
+    dst_ip: str  # pseudonymized hash
+    label: bool  # True=confirmed anomaly, False=confirmed normal
+    analyst_id: str = ""
+    event_id: str = ""  # the event being labeled
+    notes: str = ""
+    mitre_attack_id: str | None = None
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v: Any) -> datetime:
+        return _parse_timestamp(v)
+
+    @property
+    def ts_epoch(self) -> float:
+        return self.timestamp.timestamp()
+
+
+# ---------------------------------------------------------------------------
+# Weak supervision models
+# ---------------------------------------------------------------------------
+
+
+class WeakLabel(BaseModel):
+    """A single label vote from one labeling source (labelling function).
+
+    Each source produces a WeakLabel with:
+    - ``label``: True (anomaly), False (normal), or None (abstain)
+    - ``confidence``: how confident this source is about this specific label
+    - ``source``: which labeling function produced this vote
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    event_id: str
+    timestamp: datetime
+    src_ip: str
+    dst_ip: str
+    source: str  # suricata, wazuh, misp, brain, analyst, darktrace
+    label: bool | None = None  # None = abstain (no opinion)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    event_type: str | None = None
+    mitre_attack_id: str | None = None
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v: Any) -> datetime:
+        return _parse_timestamp(v)
+
+    @property
+    def ts_epoch(self) -> float:
+        return self.timestamp.timestamp()
+
+
+class ConsensusLabel(BaseModel):
+    """A label produced by combining multiple WeakLabels via weak supervision.
+
+    The weak supervisor aggregates votes from multiple sources and produces
+    a final label with aggregated confidence. This replaces the single-source
+    SupervisedLabel when Darktrace is not available.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    event_id: str = Field(default_factory=lambda: str(uuid4()))
+    timestamp: datetime
+    src_ip: str
+    dst_ip: str
+    label: bool
+    confidence: float = Field(ge=0.0, le=1.0)
+    source: str = "weak_supervision"
+    contributing_sources: list[str] = Field(default_factory=list)
+    vote_breakdown: dict[str, Any] = Field(default_factory=dict)
+    # Number of sources that voted True / False / Abstain
+    votes_positive: int = 0
+    votes_negative: int = 0
+    votes_abstain: int = 0
+    event_type: str | None = None
+    mitre_attack_id: str | None = None
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v: Any) -> datetime:
+        return _parse_timestamp(v)
+
+    @property
+    def ts_epoch(self) -> float:
+        return self.timestamp.timestamp()
+
+    def to_supervised_label(self) -> SupervisedLabel:
+        """Convert to a SupervisedLabel for compatibility with the existing pipeline."""
+        return SupervisedLabel(
+            event_id=self.event_id,
+            timestamp=self.timestamp,
+            src_ip=self.src_ip,
+            dst_ip=self.dst_ip,
+            label=self.label,
+            source=self.source,
+            confidence=self.confidence,
+            event_type=self.event_type,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Active learning models
+# ---------------------------------------------------------------------------
+
+
+class ActiveLearningQuery(BaseModel):
+    """A query for the analyst to review an uncertain event.
+
+    The active learning module selects events where the system is most
+    uncertain (near the decision threshold, or where models disagree) and
+    presents them to the analyst for confirmation.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    query_id: str = Field(default_factory=lambda: str(uuid4()))
+    event_id: str
+    timestamp: datetime
+    src_ip: str
+    dst_ip: str
+    model_scores: dict[str, float] = Field(default_factory=dict)
+    unified_score: float = Field(ge=0.0, le=1.0)
+    current_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    selection_reason: str = ""  # uncertainty, disagreement, diversity
+    uncertainty_score: float = Field(ge=0.0, le=1.0)
+    suggested_label: bool | None = None
+    mitre_attack_id: str | None = None
+    event_type: str | None = None
+    # Context for the analyst
+    context: dict[str, Any] = Field(default_factory=dict)
+    status: str = "pending"  # pending, confirmed, rejected, skipped
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v: Any) -> datetime:
+        return _parse_timestamp(v)
+
+    @property
+    def ts_epoch(self) -> float:
+        return self.timestamp.timestamp()
+
+
+class ActiveLearningBatch(BaseModel):
+    """A batch of active learning queries for the analyst to review.
+
+    The active learning module selects a batch of the most informative
+    events and packages them for review. The analyst's feedback is then
+    fed back as AnalystFeedback labels.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    batch_id: str = Field(default_factory=lambda: str(uuid4()))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    queries: list[ActiveLearningQuery] = Field(default_factory=list)
+    strategy: str = "uncertainty"  # uncertainty, disagreement, diversity, hybrid
+    batch_size: int = 0
+    model_thresholds: dict[str, float] = Field(default_factory=dict)
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v: Any) -> datetime:
+        return _parse_timestamp(v)
+
+
+# ---------------------------------------------------------------------------
+# Label source configuration
+# ---------------------------------------------------------------------------
+
+
+class LabelSourceConfig(BaseModel):
+    """Configuration for a single label source.
+
+    Each source has:
+    - ``enabled``: whether to use this source
+    - ``weight``: default weight in the weak supervisor (can be learned)
+    - ``min_confidence``: minimum confidence to include a label from this source
+    - ``params``: source-specific parameters
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str  # suricata, wazuh, misp, brain, analyst, darktrace
+    enabled: bool = True
+    weight: float = Field(default=1.0, ge=0.0, le=10.0)
+    min_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Weighted aligned event (extends AlignedEvent with confidence-weighted label)
+# ---------------------------------------------------------------------------
+
+
+class WeightedAlignedEvent(AlignedEvent):
+    """An aligned event with confidence-weighted label for threshold tuning.
+
+    Extends AlignedEvent with:
+    - ``label_confidence``: confidence of the label (0-1), from weak supervision
+    - ``label_source``: which source(s) produced the label
+    """
+
+    label_confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    label_source: str = "darktrace"
+    contributing_sources: list[str] = Field(default_factory=list)

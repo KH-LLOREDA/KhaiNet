@@ -1,3 +1,6 @@
+# ===========================================================================
+# Darktrace (optional — when available, provides high-quality labels)
+# ===========================================================================
 darktrace:
   api_url: "https://darktrace.example.com"
   api_token: "${DARKTRACE_API_TOKEN}"
@@ -6,22 +9,108 @@ darktrace:
   max_retries: 3
   rate_limit_per_second: 10
 
+# ===========================================================================
+# Label sources — multi-source auto-labeling
+# ===========================================================================
+# Each source converts raw alerts/events into WeakLabels.
+# The weak supervisor combines them into consensus labels.
+# Darktrace is optional — when unavailable (isolated environments),
+# the other sources provide labels autonomously.
+label_sources:
+  suricata:
+    enabled: true
+    weight: 1.2          # signature-based = high confidence
+    min_confidence: 0.5
+    params:
+      eve_json_path: "/var/log/suricata/eve.json"
+
+  wazuh:
+    enabled: true
+    weight: 1.0
+    min_confidence: 0.5
+    params:
+      min_rule_level: 6  # only alerts with level >= 6
+
+  misp:
+    enabled: true
+    weight: 1.3          # threat intel = high confidence
+    min_confidence: 0.5
+    params:
+      misp_url: "https://misp.internal/api"
+      misp_key: "${MISP_API_KEY}"
+
+  brain:
+    enabled: true
+    weight: 0.7          # AI correlation = weaker than signatures
+    min_confidence: 0.3
+    params:
+      confidence_scale: 0.8  # scale Brain's confidence down
+
+  analyst:
+    enabled: true
+    weight: 2.0          # human ground truth = highest weight
+    min_confidence: 0.0
+
+  darktrace:
+    enabled: false       # disabled in isolated environments
+    weight: 1.5
+    min_confidence: 0.5
+    params:
+      min_severity: "low"
+      deduplicate: true
+
+# ===========================================================================
+# Weak supervision — combine multiple sources into consensus labels
+# ===========================================================================
+weak_supervision:
+  decision_threshold: 0.0    # score > 0 → True (any positive weighted vote wins)
+  abstain_threshold: 0.0     # below this |score|, supervisor abstains
+  analyst_override: true     # analyst labels always override other votes
+  temporal_matching:
+    window_seconds: 60
+    jitter_seconds: 30
+
+# ===========================================================================
+# Active learning — select uncertain events for analyst review
+# ===========================================================================
+active_learning:
+  strategy: "hybrid"          # uncertainty, disagreement, diversity, hybrid
+  batch_size: 20              # events per review batch
+  uncertainty_weight: 0.5     # weight for uncertainty in hybrid mode
+  disagreement_weight: 0.3    # weight for disagreement in hybrid mode
+  diversity_weight: 0.2       # weight for diversity in hybrid mode
+  random_seed: 42
+  prioritize_unlabeled: true  # unlabeled events get highest priority
+
+# ===========================================================================
+# Temporal alignment (existing — unchanged)
+# ===========================================================================
 temporal_alignment:
   window_seconds: 60
   jitter_seconds: 30
 
+# ===========================================================================
+# Cost matrix (existing — unchanged)
+# ===========================================================================
 cost_matrix:
   fn_cost: 10.0
   fp_cost: 1.0
   tp_benefit: 0.0
   tn_benefit: 0.0
 
+# ===========================================================================
+# Threshold tuning (existing — now supports weighted labels)
+# ===========================================================================
 threshold_tuning:
   optimization_metric: "cost_weighted"  # cost_weighted, f1, youdens_j
   min_threshold: 0.01
   max_threshold: 0.99
   threshold_steps: 100
+  use_weighted_labels: true  # use confidence-weighted tuning when available
 
+# ===========================================================================
+# Score fusion (existing — unchanged)
+# ===========================================================================
 score_fusion:
   method: "weighted_average"  # weighted_average, stacking
   default_weights:
@@ -29,6 +118,9 @@ score_fusion:
     autoencoder: 0.333
     hmm: 0.334
 
+# ===========================================================================
+# Metrics (existing — unchanged)
+# ===========================================================================
 metrics:
   targets:
     coverage: 90.0
@@ -36,10 +128,16 @@ metrics:
     advantage: 0
     latency_diff_pct: 30.0
 
+# ===========================================================================
+# Drift check (existing — unchanged)
+# ===========================================================================
 drift_check:
   psi_threshold: 0.25
   ks_pvalue_threshold: 0.05
   wasserstein_threshold: 0.1
 
+# ===========================================================================
+# Experiment tracker (existing — unchanged)
+# ===========================================================================
 experiment_tracker:
   output_dir: "./experiments"
