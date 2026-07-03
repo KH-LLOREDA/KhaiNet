@@ -1,0 +1,46 @@
+zeek:
+  log_dir: "/var/log/zeek"
+  conn_log: "conn.log"
+  dns_log: "dns.log"
+  http_log: "http.log"
+  ssl_log: "ssl.log"
+  pseudonymize_ips: true
+  salt: "khainet-salt"
+
+feature_engineering:
+  window_minutes: 5
+  common_ports: [80, 443, 22, 53, 25, 445, 3389]
+  normalization: "standard"
+
+isolation_forest:
+  n_estimators: 100
+  contamination: "auto"
+  random_state: 42
+  threshold: 0.7
+
+autoencoder:
+  hidden_dims: [64, 32, 16]
+  learning_rate: 0.001
+  epochs: 50
+  batch_size: 32
+  threshold_percentile: 99
+  random_state: 42
+
+hmm:
+  n_components: 4
+  n_iter: 100
+  covariance_type: "diag"
+  random_state: 42
+  state_labels: ["normal", "scan", "exfil", "c2"]
+
+baseline:
+  window_hours: 24
+  metrics: ["bytes_out", "bytes_in", "duration", "unique_destinations",
+            "unique_ports", "pkts_total", "dns_queries"]
+
+orchestrator:
+  model_dir: "./models"
+  mock_mode: true
+
+opensearch:
+  dashboards_dir: "./dashboards"

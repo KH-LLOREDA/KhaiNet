@@ -1,0 +1,122 @@
+{
+  "version": "2.4.0",
+  "objects": [
+    {
+      "id": "anomaly-dashboard",
+      "type": "dashboard",
+      "attributes": {
+        "title": "KhaiNet - Anomaly Detection",
+        "description": "Anomaly scores from Isolation Forest, Autoencoder, and HMM models",
+        "panelsJSON": [
+          {
+            "id": "panel-scores-timeseries",
+            "title": "Anomaly scores by model (IF, AE, HMM)",
+            "type": "visualization",
+            "visualization": {
+              "type": "line",
+              "indexPattern": "ml-scores-*",
+              "aggs": [
+                {
+                  "type": "date_histogram",
+                  "field": "timestamp",
+                  "interval": "5m"
+                },
+                {
+                  "type": "avg",
+                  "field": "score",
+                  "filter": {"model_name": "isolation_forest"},
+                  "label": "Isolation Forest"
+                },
+                {
+                  "type": "avg",
+                  "field": "score",
+                  "filter": {"model_name": "autoencoder"},
+                  "label": "Autoencoder"
+                },
+                {
+                  "type": "avg",
+                  "field": "score",
+                  "filter": {"model_name": "hmm"},
+                  "label": "HMM"
+                }
+              ]
+            },
+            "gridData": {"x": 0, "y": 0, "w": 24, "h": 10}
+          },
+          {
+            "id": "panel-anom-by-type",
+            "title": "Anomalous events by type",
+            "type": "visualization",
+            "visualization": {
+              "type": "bar",
+              "indexPattern": "ml-scores-*",
+              "aggs": [
+                {
+                  "type": "terms",
+                  "field": "model_name"
+                },
+                {
+                  "type": "filter",
+                  "query": "is_anomaly:true",
+                  "label": "anomalies"
+                }
+              ]
+            },
+            "gridData": {"x": 0, "y": 10, "w": 12, "h": 8}
+          },
+          {
+            "id": "panel-score-histogram",
+            "title": "Score distribution",
+            "type": "visualization",
+            "visualization": {
+              "type": "histogram",
+              "indexPattern": "ml-scores-*",
+              "aggs": [
+                {
+                  "type": "histogram",
+                  "field": "score",
+                  "interval": 0.05
+                },
+                {
+                  "type": "count"
+                }
+              ]
+            },
+            "gridData": {"x": 12, "y": 10, "w": 12, "h": 8}
+          },
+          {
+            "id": "panel-top-anomalous-hosts",
+            "title": "Top anomalous hosts",
+            "type": "visualization",
+            "visualization": {
+              "type": "table",
+              "indexPattern": "ml-scores-*",
+              "aggs": [
+                {
+                  "type": "terms",
+                  "field": "src_ip",
+                  "size": 20
+                },
+                {
+                  "type": "avg",
+                  "field": "score",
+                  "label": "avg_score"
+                },
+                {
+                  "type": "count",
+                  "filter": "is_anomaly:true",
+                  "label": "anomaly_count"
+                }
+              ]
+            },
+            "gridData": {"x": 0, "y": 18, "w": 24, "h": 8}
+          }
+        ],
+        "options": {
+          "useMargins": true,
+          "hidePanelTitles": false
+        }
+      }
+    }
+  ]
+}

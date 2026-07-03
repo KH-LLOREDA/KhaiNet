@@ -1,0 +1,108 @@
+{
+  "version": "2.4.0",
+  "objects": [
+    {
+      "id": "traffic-dashboard",
+      "type": "dashboard",
+      "attributes": {
+        "title": "KhaiNet - Traffic Overview",
+        "description": "General network traffic dashboard from Zeek conn.log data",
+        "panelsJSON": [
+          {
+            "id": "panel-bytes-hour",
+            "title": "Volume of bytes by hour",
+            "type": "visualization",
+            "visualization": {
+              "type": "area",
+              "indexPattern": "zeek-conn-*",
+              "aggs": [
+                {
+                  "type": "date_histogram",
+                  "field": "timestamp",
+                  "interval": "1h"
+                },
+                {
+                  "type": "sum",
+                  "field": "orig_bytes",
+                  "label": "bytes_out"
+                },
+                {
+                  "type": "sum",
+                  "field": "resp_bytes",
+                  "label": "bytes_in"
+                }
+              ]
+            },
+            "gridData": {"x": 0, "y": 0, "w": 24, "h": 8}
+          },
+          {
+            "id": "panel-top-talkers",
+            "title": "Top talkers by bytes",
+            "type": "visualization",
+            "visualization": {
+              "type": "bar",
+              "indexPattern": "zeek-conn-*",
+              "aggs": [
+                {
+                  "type": "terms",
+                  "field": "src_ip",
+                  "size": 10
+                },
+                {
+                  "type": "sum",
+                  "field": "orig_bytes",
+                  "label": "bytes_out"
+                }
+              ]
+            },
+            "gridData": {"x": 0, "y": 8, "w": 12, "h": 8}
+          },
+          {
+            "id": "panel-protocol-pie",
+            "title": "Connections by protocol",
+            "type": "visualization",
+            "visualization": {
+              "type": "pie",
+              "indexPattern": "zeek-conn-*",
+              "aggs": [
+                {
+                  "type": "terms",
+                  "field": "protocol"
+                },
+                {
+                  "type": "count"
+                }
+              ]
+            },
+            "gridData": {"x": 12, "y": 8, "w": 12, "h": 8}
+          },
+          {
+            "id": "panel-dst-port-bar",
+            "title": "Traffic by destination port",
+            "type": "visualization",
+            "visualization": {
+              "type": "bar",
+              "indexPattern": "zeek-conn-*",
+              "aggs": [
+                {
+                  "type": "terms",
+                  "field": "dst_port",
+                  "size": 15
+                },
+                {
+                  "type": "sum",
+                  "field": "orig_bytes"
+                }
+              ]
+            },
+            "gridData": {"x": 0, "y": 16, "w": 24, "h": 8}
+          }
+        ],
+        "options": {
+          "useMargins": true,
+          "hidePanelTitles": false
+        }
+      }
+    }
+  ]
+}

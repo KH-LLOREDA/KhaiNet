@@ -1,0 +1,130 @@
+{
+  "version": "2.4.0",
+  "objects": [
+    {
+      "id": "baseline-dashboard",
+      "type": "dashboard",
+      "attributes": {
+        "title": "KhaiNet - Baseline & Deviation",
+        "description": "Traffic baseline comparison and HMM state visualization",
+        "panelsJSON": [
+          {
+            "id": "panel-bytes-vs-baseline",
+            "title": "Bytes by host vs baseline p99",
+            "type": "visualization",
+            "visualization": {
+              "type": "line",
+              "indexPattern": "zeek-conn-*",
+              "aggs": [
+                {
+                  "type": "date_histogram",
+                  "field": "timestamp",
+                  "interval": "1h"
+                },
+                {
+                  "type": "sum",
+                  "field": "orig_bytes",
+                  "label": "actual_bytes_out"
+                }
+              ],
+              "thresholdLines": [
+                {
+                  "value": 19000,
+                  "label": "baseline_p99",
+                  "color": "#FF0000"
+                }
+              ]
+            },
+            "gridData": {"x": 0, "y": 0, "w": 24, "h": 10}
+          },
+          {
+            "id": "panel-deviation-gauge",
+            "title": "Deviation from baseline by host",
+            "type": "visualization",
+            "visualization": {
+              "type": "gauge",
+              "indexPattern": "ml-scores-*",
+              "aggs": [
+                {
+                  "type": "terms",
+                  "field": "src_ip",
+                  "size": 10
+                },
+                {
+                  "type": "avg",
+                  "field": "score",
+                  "label": "deviation"
+                }
+              ],
+              "gaugeOptions": {
+                "min": 0,
+                "max": 1,
+                "ranges": [
+                  {"from": 0, "to": 0.3, "color": "#00CC00"},
+                  {"from": 0.3, "to": 0.7, "color": "#FFCC00"},
+                  {"from": 0.7, "to": 1, "color": "#FF0000"}
+                ]
+              }
+            },
+            "gridData": {"x": 0, "y": 10, "w": 12, "h": 8}
+          },
+          {
+            "id": "panel-unique-dst-table",
+            "title": "Unique destinations by host (with baseline)",
+            "type": "visualization",
+            "visualization": {
+              "type": "table",
+              "indexPattern": "zeek-conn-*",
+              "aggs": [
+                {
+                  "type": "terms",
+                  "field": "src_ip",
+                  "size": 20
+                },
+                {
+                  "type": "cardinality",
+                  "field": "dst_ip",
+                  "label": "unique_destinations"
+                },
+                {
+                  "type": "avg",
+                  "field": "baseline_unique_destinations",
+                  "label": "baseline_avg"
+                }
+              ]
+            },
+            "gridData": {"x": 12, "y": 10, "w": 12, "h": 8}
+          },
+          {
+            "id": "panel-hmm-heatmap",
+            "title": "HMM state by host (heatmap)",
+            "type": "visualization",
+            "visualization": {
+              "type": "heatmap",
+              "indexPattern": "ml-scores-*",
+              "aggs": [
+                {
+                  "type": "terms",
+                  "field": "src_ip",
+                  "size": 20
+                },
+                {
+                  "type": "terms",
+                  "field": "details.state_label"
+                },
+                {
+                  "type": "count"
+                }
+              ]
+            },
+            "gridData": {"x": 0, "y": 18, "w": 24, "h": 8}
+          }
+        ],
+        "options": {
+          "useMargins": true,
+          "hidePanelTitles": false
+        }
+      }
+    }
+  ]
+}
