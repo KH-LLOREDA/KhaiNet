@@ -1,0 +1,15 @@
+confluent-kafka>=2.3.0
+httpx>=0.27.0
+tenacity>=8.2.0
+pydantic>=2.6.0
+redis>=5.0.0
+pymisp>=2.4.180
+clickhouse-connect>=0.7.0
+opensearch-py>=2.4.0
+geoip2>=4.8.0
+structlog>=24.1.0
+pyyaml>=6.0
+prometheus-client>=0.20.0
+pytest>=8.0.0
+pytest-mock>=3.12.0
+pytest-asyncio>=0.23.0

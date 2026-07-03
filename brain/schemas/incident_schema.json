@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Incident",
+  "description": "KhaiNet Brain output incident schema",
+  "type": "object",
+  "required": ["incident_id", "created_at", "status", "severity", "severity_label", "confidence", "title", "description", "correlation_reason", "false_positive_assessment", "recommended_actions", "alerts", "entities", "enrichment", "timeline", "metrics", "xai_available"],
+  "properties": {
+    "incident_id": {"type": "string", "format": "uuid"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "status": {"type": "string", "enum": ["new", "investigating", "contained", "resolved"]},
+    "severity": {"type": "integer", "minimum": 0, "maximum": 100},
+    "severity_label": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "title": {"type": "string"},
+    "description": {"type": "string"},
+    "explanation": {"type": ["string", "null"]},
+    "correlation_reason": {"type": "string"},
+    "false_positive_assessment": {"type": "string"},
+    "recommended_actions": {"type": "array", "items": {"type": "object"}},
+    "alerts": {"type": "array", "items": {"type": "object"}},
+    "entities": {"type": "object"},
+    "enrichment": {"type": "object"},
+    "timeline": {"type": "array", "items": {"type": "object"}},
+    "metrics": {"type": "object"},
+    "xai_available": {"type": "boolean"},
+    "llm_model": {"type": ["string", "null"]},
+    "llm_latency_ms": {"type": ["integer", "null"]},
+    "tags": {"type": "array", "items": {"type": "string"}}
+  }
+}

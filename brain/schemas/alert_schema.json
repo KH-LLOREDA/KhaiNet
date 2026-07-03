@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Alert",
+  "description": "KhaiNet Brain input alert schema",
+  "type": "object",
+  "required": ["alert_id", "timestamp", "source", "source_type", "severity_raw", "confidence", "src_ip", "dst_ip", "protocol", "event_type"],
+  "properties": {
+    "alert_id": {"type": "string", "format": "uuid"},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "source": {"type": "string"},
+    "source_type": {"type": "string", "enum": ["anomaly", "signature", "host"]},
+    "severity_raw": {"type": "integer", "minimum": 0, "maximum": 100},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "src_ip": {"type": "string"},
+    "dst_ip": {"type": "string"},
+    "src_port": {"type": "integer"},
+    "dst_port": {"type": "integer"},
+    "protocol": {"type": "string", "enum": ["tcp", "udp", "icmp"]},
+    "service": {"type": "string"},
+    "bytes": {"type": "integer"},
+    "packets": {"type": "integer"},
+    "duration": {"type": "number"},
+    "ml_model": {"type": "string"},
+    "ml_score": {"type": "number"},
+    "ml_features": {"type": "object"},
+    "rule_id": {"type": ["string", "null"]},
+    "rule_message": {"type": ["string", "null"]},
+    "event_type": {"type": "string", "enum": ["scan", "c2_beaconing", "lateral_movement", "exfiltration", "dns_tunneling", "anomaly"]},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "raw_event": {"type": "object"}
+  }
+}
