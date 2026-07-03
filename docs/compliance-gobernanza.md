@@ -3,7 +3,7 @@
 > **Documento de cumplimiento — Proyecto KhaiNet**
 > Fecha: 2026-07-03
 > Estado: Borrador v1 (pendiente de revisión por DPO y CISO)
-> Vinculado a: [Arquitectura KhaiNet](darktrace-alternativa-software-libre.md) — Sección 7.4
+> Vinculado a: [Arquitectura KhaiNet](darktrace-alternativa-software-libre.md) — Sección 13 (Riesgos, #9)
 
 ---
 
@@ -443,40 +443,73 @@ PUT _plugins/_ism/policies/evidence-retention-5y
 ```json
 PUT _ingest/pipeline/pseudonymize_ips
 {
-  "description": "Pseudonymize source and destination IPs using salted SHA-256 hash. Preserves /24 subnet for routing analysis.",
+  "description": "Pseudonymize source and destination IPs using salted SHA-256 hash. Preserves /24 subnet (IPv4) or /64 prefix (IPv6) for routing analysis.",
   "processors": [
     {
       "script": {
         "source": """
-          // Salt inyectada desde keystore — no hardcodear en producción
-          def salt = 'KhaiNet_2026_secret_salt_rotate_yearly';
-          
-          // Función hash
-          def hashIp = { ip ->
-            return java.security.MessageDigest.getInstance('SHA-256')
-              .digest((ip + salt).getBytes('UTF-8'))
-              .encodeHex().toString().substring(0, 16);
+          // Salt inyectada vía params desde el OpenSearch Keystore — NO hardcodear
+          // Configurar con: ./bin/opensearch-keystore add khainet.ip.salt
+          // Y en opensearch.yml: khainet.ip.salt: ${khainet.ip.salt}
+          def salt = params['ip_salt'];
+
+          // Codificación hex manual (compatible con Painless — no usar encodeHex de Groovy)
+          def toHex = { bytes ->
+            def sb = new StringBuilder();
+            for (def b : bytes) {
+              sb.append(String.format('%02x', b & 0xff));
+            }
+            return sb.toString();
           };
-          
+
+          // Hash SHA-256 de IP + sal, truncado a 16 chars hex (64 bits)
+          // Truncación justificada: espacio de IPs internas es pequeño (<2^32);
+          // 64 bits de hash son suficientes para evitar colisiones en este dominio.
+          def hashIp = { ip ->
+            def md = java.security.MessageDigest.getInstance('SHA-256');
+            md.update((ip + salt).getBytes('UTF-8'));
+            return toHex(md.digest()).substring(0, 16);
+          };
+
           // Seudonimizar IP de origen
           if (ctx.source_ip != null) {
             ctx.source_ip_pseudo = hashIp(ctx.source_ip);
-            def parts = ctx.source_ip.splitOnToken('.');
-            if (parts.length == 4) {
-              ctx.source_ip_subnet = parts[0] + '.' + parts[1] + '.' + parts[2] + '.0/24';
+            // Preservar subred para análisis de routing
+            if (ctx.source_ip.contains('.')) {
+              // IPv4: preservar /24
+              def parts = ctx.source_ip.splitOnToken('.');
+              if (parts.length == 4) {
+                ctx.source_ip_subnet = parts[0] + '.' + parts[1] + '.' + parts[2] + '.0/24';
+              }
+            } else if (ctx.source_ip.contains(':')) {
+              // IPv6: preservar /64
+              def parts = ctx.source_ip.splitOnToken(':');
+              if (parts.length >= 4) {
+                ctx.source_ip_subnet = parts[0] + ':' + parts[1] + ':' + parts[2] + ':' + parts[3] + '::/64';
+              }
             }
           }
-          
+
           // Seudonimizar IP de destino
           if (ctx.dest_ip != null) {
             ctx.dest_ip_pseudo = hashIp(ctx.dest_ip);
-            def parts = ctx.dest_ip.splitOnToken('.');
-            if (parts.length == 4) {
-              ctx.dest_ip_subnet = parts[0] + '.' + parts[1] + '.' + parts[2] + '.0/24';
+            if (ctx.dest_ip.contains('.')) {
+              def parts = ctx.dest_ip.splitOnToken('.');
+              if (parts.length == 4) {
+                ctx.dest_ip_subnet = parts[0] + '.' + parts[1] + '.' + parts[2] + '.0/24';
+              }
+            } else if (ctx.dest_ip.contains(':')) {
+              def parts = ctx.dest_ip.splitOnToken(':');
+              if (parts.length >= 4) {
+                ctx.dest_ip_subnet = parts[0] + ':' + parts[1] + ':' + parts[2] + ':' + parts[3] + '::/64';
+              }
             }
           }
         """,
-        "lang": "painless"
+        "lang": "painless",
+        "params": {
+          "ip_salt": "INJECT_FROM_KEYSTORE"
+        }
       }
     },
     {
@@ -489,9 +522,9 @@ PUT _ingest/pipeline/pseudonymize_ips
 }
 ```
 
-> **Nota de seguridad:** La sal NO debe estar hardcodeada en el script. En producción,
-> usar el OpenSearch Keystore (`./bin/opensearch-keystore add khainet.ip.salt`) e
-> inyectarla vía variable de entorno del nodo. Rotar anualmente.
+> **Nota de seguridad crítica:** El valor `"INJECT_FROM_KEYSTORE"` es un placeholder.
+> En producción, la sal se inyecta desde el OpenSearch Keystore y nunca aparece en el
+> cuerpo del pipeline. Rotar anualmente. La sal debe tener mínimo 32 bytes de entropía.
 
 #### 4.4.2 Índice vault para mapeo reversible
 
@@ -649,6 +682,25 @@ monitorea.
   de entrada, y qué acciones tomó
 - **Timeout y rate limiting:** Configurar límites para evitar bucles infinitos o acciones
   masivas no deseadas
+
+#### Art. 22 GDPR — Decisiones automatizadas
+
+El Art. 22 GDPR otorga al interesado el derecho a no ser objeto de decisiones basadas
+únicamente en el tratamiento automatizado que produzcan efectos jurídicos o le afecten
+significativamente. Aunque las alertas de seguridad de KhaiNet **no constituyen por sí
+mismas decisiones con efectos jurídicos sobre personas**, los playbooks SOAR de Nivel 3-4
+(bloqueo de cuentas de usuario, aislamiento de endpoints) sí pueden afectar
+significativamente a un empleado.
+
+**Salvaguardias para cumplir el Art. 22:**
+- Los playbooks de Nivel 3 (contención alta) requieren **política pre-aprobada** por CISO
+  + DPO, con revisión humana posterior de cada ejecución
+- Los playbooks de Nivel 4 (irreversible) requieren **aprobación humana obligatoria**
+  antes de la ejecución — nunca son completamente automatizados
+- Todo individuo afectado por una acción automatizada de contención debe ser **informado**
+  y puede solicitar revisión humana (Art. 22(3))
+- Se mantiene un **registro auditable** de cada decisión automatizada para permitir
+  revisión humana posterior
 
 ### 5.4 Gobernanza de modelos de IA (Brain y anomalías)
 
@@ -1036,6 +1088,7 @@ Una DPIA (Art. 35) es **obligatoria** para KhaiNet porque:
 | Art. 5 | Principios relativos al tratamiento | https://gdpr-info.eu/art-5-gdpr/ |
 | Art. 6(1)(f) | Licitud — interés legítimo | https://gdpr-info.eu/art-6-gdpr/ |
 | Art. 13-14 | Información al interesado | https://gdpr-info.eu/art-13-gdpr/ |
+| Art. 22 | Decisiones automatizadas individuales | https://gdpr-info.eu/art-22-gdpr/ |
 | Art. 25 | Protección de datos por diseño y por defecto | https://gdpr-info.eu/art-25-gdpr/ |
 | Art. 30 | Registro de actividades de tratamiento | https://gdpr-info.eu/art-30-gdpr/ |
 | Art. 32 | Seguridad del tratamiento | https://gdpr-info.eu/art-32-gdpr/ |
@@ -1055,8 +1108,8 @@ Una DPIA (Art. 35) es **obligatoria** para KhaiNet porque:
 
 ### Directrices y guías
 
-- **EDPB Guidelines 9/2022 on Legitimate Interest (Art. 6(1)(f))** — Directrices finales
-  adoptadas 2024. Disponible en: https://www.edpb.europa.eu/
+- **EDPB Guidelines 9/2022 on Legitimate Interest (Art. 6(1)(f))** — Versión final
+  adoptada en marzo de 2024. Disponible en: https://www.edpb.europa.eu/
 - **WP29 Opinion 2/2017 on data processing at work (WP249)** — Monitorización de
   empleados. Disponible en: https://www.edpb.europa.eu/
 - **ENISA Handbook on Security of Personal Data Processing (2018)** —

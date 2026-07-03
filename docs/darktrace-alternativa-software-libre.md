@@ -503,7 +503,7 @@ Las 4 métricas deben cumplirse **simultáneamente durante 4 semanas consecutiva
 | 6 | Brain genera explicaciones incorrectas (alucinación) | Medio | Brain opera sobre datos estructurados (no texto libre); XAI con trazas de eventos; revisión humana en críticos. |
 | 7 | Pérdida de paquetes en SPAN a alto volumen | Medio | Sizing de sensores; monitorización de drops; ntopng para validar cobertura. |
 | 8 | Falta de talento interno (red + ML) | Medio | Documentación, playbooks, formación del SOC. |
-| 9 | Cumplimiento (GDPR, gobernanza, cadena de custodia) | Medio | Pendiente: añadir apartado de cumplimiento, roles, retención de PII, cadena de custodia de evidencias. |
+| 9 | Cumplimiento (GDPR, gobernanza, cadena de custodia) | Bajo | ✅ Cubierto en `docs/compliance-gobernanza.md`: GDPR, retención, seudonimización de IPs, gobernanza, roles (RACI), cadena de custodia ISO 27037, DPIA, Art. 22 GDPR, notificación de brechas (Art. 33-34). Pendiente: revisión por DPO y CISO. |
 | 10 | Dependencia de componentes open-source sin soporte | Bajo | Soporte comercial opcional por componente (Elastic, OpenSearch, Wazuh). |
 
 ---
