@@ -1,0 +1,155 @@
+{
+  "api_version": "v1",
+  "base_url": "https://darktrace.example.com",
+  "auth": {
+    "type": "bearer_token",
+    "header": "Authorization",
+    "format": "Bearer {token}",
+    "token_env_var": "DARKTRACE_API_TOKEN"
+  },
+  "endpoints": {
+    "alerts": {
+      "method": "GET",
+      "path": "/api/v1/alerts",
+      "description": "List alerts with optional filters",
+      "params": {
+        "from": {
+          "type": "string",
+          "format": "iso8601",
+          "description": "Start timestamp (inclusive)"
+        },
+        "to": {
+          "type": "string",
+          "format": "iso8601",
+          "description": "End timestamp (exclusive)"
+        },
+        "device": {
+          "type": "integer",
+          "description": "Filter by device DID"
+        },
+        "model": {
+          "type": "string",
+          "description": "Filter by model name / UUID"
+        },
+        "cursor": {
+          "type": "string",
+          "description": "Pagination cursor from previous response"
+        },
+        "limit": {
+          "type": "integer",
+          "default": 100,
+          "description": "Max results per page"
+        }
+      },
+      "response": {
+        "alerts": [
+          {
+            "pbid": "string",
+            "model": "string",
+            "modelUuid": "string",
+            "device": {
+              "did": 123,
+              "hostname": "string",
+              "ip": "string"
+            },
+            "srcDevice": {
+              "did": 456,
+              "hostname": "string",
+              "ip": "string"
+            },
+            "protocol": "tcp|udp|icmp",
+            "srcPort": 12345,
+            "dstPort": 443,
+            "category": "string",
+            "priority": 1,
+            "severity": "low|medium|high|critical",
+            "description": "string",
+            "time": "iso8601"
+          }
+        ],
+        "next_cursor": "string|null"
+      }
+    },
+    "modelbreaches": {
+      "method": "GET",
+      "path": "/api/v1/modelbreaches",
+      "description": "List model breaches",
+      "params": {
+        "from": "iso8601",
+        "to": "iso8601",
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "response": {
+        "modelbreaches": [
+          {
+            "pbid": "string",
+            "model": "string",
+            "modelUuid": "string",
+            "device": {"did": 123, "hostname": "string"},
+            "time": "iso8601",
+            "score": 0.95,
+            "category": "string",
+            "description": "string"
+          }
+        ],
+        "next_cursor": "string|null"
+      }
+    },
+    "devices": {
+      "method": "GET",
+      "path": "/api/v1/devices",
+      "description": "Device inventory",
+      "params": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "response": {
+        "devices": [
+          {
+            "did": 123,
+            "hostname": "string",
+            "ip": "string",
+            "mac": "string",
+            "type": "server|workstation|iot",
+            "firstSeen": "iso8601",
+            "lastSeen": "iso8601"
+          }
+        ],
+        "next_cursor": "string|null"
+      }
+    },
+    "analystics": {
+      "method": "GET",
+      "path": "/api/v1/analystics",
+      "description": "Analytics and metrics summary",
+      "params": {
+        "from": "iso8601",
+        "to": "iso8601"
+      },
+      "response": {
+        "total_alerts": 1234,
+        "total_breaches": 567,
+        "top_models": [{"model": "string", "count": 100}],
+        "severity_breakdown": {"critical": 10, "high": 50, "medium": 200, "low": 974}
+      }
+    }
+  },
+  "errors": {
+    "401": "DarktraceAuthError — invalid or expired token",
+    "429": "DarktraceRateLimitError — rate limit exceeded, retry with backoff",
+    "500": "DarktraceAPIError — server error",
+    "502": "DarktraceAPIError — bad gateway",
+    "503": "DarktraceAPIError — service unavailable"
+  },
+  "pagination": {
+    "type": "cursor",
+    "cursor_field": "next_cursor",
+    "param_name": "cursor",
+    "end_condition": "next_cursor is null or empty"
+  },
+  "rate_limiting": {
+    "max_requests_per_second": 10,
+    "strategy": "token_bucket"
+  }
+}

@@ -1,0 +1,45 @@
+darktrace:
+  api_url: "https://darktrace.example.com"
+  api_token: "${DARKTRACE_API_TOKEN}"
+  mock_mode: true
+  timeout_seconds: 30
+  max_retries: 3
+  rate_limit_per_second: 10
+
+temporal_alignment:
+  window_seconds: 60
+  jitter_seconds: 30
+
+cost_matrix:
+  fn_cost: 10.0
+  fp_cost: 1.0
+  tp_benefit: 0.0
+  tn_benefit: 0.0
+
+threshold_tuning:
+  optimization_metric: "cost_weighted"  # cost_weighted, f1, youdens_j
+  min_threshold: 0.01
+  max_threshold: 0.99
+  threshold_steps: 100
+
+score_fusion:
+  method: "weighted_average"  # weighted_average, stacking
+  default_weights:
+    isolation_forest: 0.333
+    autoencoder: 0.333
+    hmm: 0.334
+
+metrics:
+  targets:
+    coverage: 90.0
+    precision: 85.0
+    advantage: 0
+    latency_diff_pct: 30.0
+
+drift_check:
+  psi_threshold: 0.25
+  ks_pvalue_threshold: 0.05
+  wasserstein_threshold: 0.1
+
+experiment_tracker:
+  output_dir: "./experiments"
