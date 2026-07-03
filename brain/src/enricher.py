@@ -86,18 +86,30 @@ class Enricher:
             raise
 
     async def geoip_lookup(self, dst_ips: list[str]) -> GeoIpInfo:
-        """Look up GeoIP information from local MaxMind database."""
+        """Look up GeoIP information from local MaxMind database.
+
+        .. note::
+            GeoIP only applies to **real external IPs**, not pseudonymized
+            hashes. Pseudonymized IPs (SHA-256 hashes, 64 hex chars, or
+            prefixed with ``hash:``) are skipped automatically.
+
+            In the KhaiNet pipeline, the ingestion layer should resolve
+            GeoIP for external IPs **before** pseudonymization, or provide
+            a mapping table. This method handles only real IPs that reach
+            Brain without pseudonymization (e.g. from external threat
+            intel feeds).
+        """
         try:
             if self._geoip_reader is None:
                 return GeoIpInfo()
 
-            # Pseudonymized IPs are hashes, not real IPs.
-            # In production, the pipeline would de-pseudonymize or use a mapping.
-            # For now, return empty if IPs are hashes.
             info = GeoIpInfo()
             for ip in dst_ips:
-                # Only look up real IPs (not hashes)
-                if len(ip) > 40:  # SHA-256 hash
+                # Skip pseudonymized IPs — they are hashes, not real IPs.
+                # Pseudonymized IPs are identified by:
+                # - Length > 39 (SHA-256 hash = 64 hex chars, SHA-1 = 40)
+                # - Prefix "hash:" (explicit pseudonymization marker)
+                if self._is_pseudonymized(ip):
                     continue
                 try:
                     loop = asyncio.get_running_loop()
@@ -115,6 +127,27 @@ class Enricher:
         except (asyncio.TimeoutError, OSError, RuntimeError) as e:
             log.warning("geoip_lookup_failed", error=str(e), dst_ips=dst_ips)
             raise
+
+    @staticmethod
+    def _is_pseudonymized(ip: str) -> bool:
+        """Check if an IP string is a pseudonymized hash rather than a real IP.
+
+        Pseudonymized IPs are identified by:
+        - Length > 39 characters (SHA-256 = 64 hex, SHA-1 = 40 hex)
+        - Prefix ``hash:`` (explicit pseudonymization marker)
+        - All hex characters and length >= 32 (MD5/SHA hash)
+
+        Real IPs (IPv4: ddd.ddd.ddd.ddd, IPv6: colon-separated hex groups)
+        are never longer than 39 characters and don't match these patterns.
+        """
+        if ip.startswith("hash:"):
+            return True
+        if len(ip) > 39:
+            return True
+        # Check if it's a pure hex string (hash) vs a real IP
+        if len(ip) >= 32 and all(c in "0123456789abcdefABCDEF" for c in ip):
+            return True
+        return False
 
     async def threat_intel_lookup(
         self, src_ips: list[str], dst_ips: list[str]

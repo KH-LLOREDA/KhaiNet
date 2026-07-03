@@ -109,17 +109,19 @@ def test_extract_ips_hashes():
 
 
 def test_detect_hallucinations_clean(valid_llm_output):
-    """No hallucinations when LLM output uses input IPs."""
+    """No hallucinations when LLM output uses input IPs and hostnames."""
     input_group = {
         "alerts": [
             {
-                "src_ip": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
+                "src_ip": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1",
+                "raw_event": {"hostname": "SRV-DB-01"},
             }
         ],
         "entities": {
             "src_ips": [
                 "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
-            ]
+            ],
+            "src_hosts": ["SRV-DB-01"],
         },
     }
     errors = detect_hallucinations(valid_llm_output, input_group)
@@ -168,14 +170,125 @@ def test_validate_and_check_hallucinations_clean(valid_llm_output):
     input_group = {
         "alerts": [
             {
-                "src_ip": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
+                "src_ip": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1",
+                "raw_event": {"hostname": "SRV-DB-01"},
             }
         ],
         "entities": {
             "src_ips": [
                 "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1"
-            ]
+            ],
+            "src_hosts": ["SRV-DB-01"],
         },
     }
     result = validate_and_check_hallucinations(valid_llm_output, input_group)
     assert isinstance(result, LLMOutput)
+
+
+# ---------------------------------------------------------------------------
+# W1: Hostname and alert_id hallucination detection tests
+# ---------------------------------------------------------------------------
+
+
+def test_extract_hostnames():
+    """Extract hostname-like strings from text."""
+    from src.schema_validator import extract_hostnames
+
+    text = "Connection from SRV-DB-01 to WEB-SERVER-02"
+    hosts = extract_hostnames(text)
+    assert "SRV-DB-01" in hosts
+    assert "WEB-SERVER-02" in hosts
+
+
+def test_extract_alert_ids():
+    """Extract UUID-like alert IDs from text."""
+    from src.schema_validator import extract_alert_ids
+
+    text = "Alert 550e8400-e29b-41d4-a716-446655440000 triggered"
+    ids = extract_alert_ids(text)
+    assert "550e8400-e29b-41d4-a716-446655440000" in ids
+
+
+def test_detect_hallucinations_hostname():
+    """Hallucination detected when LLM invents a hostname."""
+    from src.schema_validator import detect_hallucinations
+
+    llm_output = {
+        "title": "Test",
+        "description": "Server FAKE-HOST-99 was compromised",
+        "explanation": "FAKE-HOST-99 shows anomalous behavior",
+        "correlation_reason": "Same host",
+        "false_positive_assessment": "Not FP",
+        "severity_adjustment": 0,
+        "confidence": 0.9,
+        "recommended_actions": [],
+    }
+    input_group = {
+        "alerts": [
+            {
+                "alert_id": "test-1",
+                "src_ip": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1",
+                "raw_event": {"hostname": "SRV-DB-01"},
+            }
+        ],
+        "entities": {"src_ips": []},
+    }
+    errors = detect_hallucinations(llm_output, input_group)
+    assert any("hostname" in e.lower() for e in errors)
+
+
+def test_detect_hallucinations_hostname_valid():
+    """No hallucination when LLM uses input hostname."""
+    from src.schema_validator import detect_hallucinations
+
+    llm_output = {
+        "title": "Test",
+        "description": "Server SRV-DB-01 was compromised",
+        "explanation": "SRV-DB-01 shows anomalous behavior",
+        "correlation_reason": "Same host",
+        "false_positive_assessment": "Not FP",
+        "severity_adjustment": 0,
+        "confidence": 0.9,
+        "recommended_actions": [],
+    }
+    input_group = {
+        "alerts": [
+            {
+                "alert_id": "test-1",
+                "src_ip": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1",
+                "raw_event": {"hostname": "SRV-DB-01"},
+            }
+        ],
+        "entities": {"src_ips": []},
+    }
+    errors = detect_hallucinations(llm_output, input_group)
+    # No hostname hallucination (SRV-DB-01 is in input)
+    assert not any("hostname" in e.lower() for e in errors)
+
+
+def test_detect_hallucinations_alert_id():
+    """Hallucination detected when LLM references non-existent alert ID."""
+    from src.schema_validator import detect_hallucinations
+
+    fake_id = "550e8400-e29b-41d4-a716-446655440000"
+    llm_output = {
+        "title": "Test",
+        "description": f"Alert {fake_id} shows exfiltration",
+        "explanation": "Anomalous",
+        "correlation_reason": "Same entity",
+        "false_positive_assessment": "Not FP",
+        "severity_adjustment": 0,
+        "confidence": 0.9,
+        "recommended_actions": [],
+    }
+    input_group = {
+        "alerts": [
+            {
+                "alert_id": "11111111-2222-3333-4444-555555555555",
+                "src_ip": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1",
+            }
+        ],
+        "entities": {"src_ips": []},
+    }
+    errors = detect_hallucinations(llm_output, input_group)
+    assert any("alert" in e.lower() for e in errors)

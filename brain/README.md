@@ -95,8 +95,12 @@ brain/
 │   ├── test_shuffle_client.py
 │   ├── test_state_manager.py
 │   ├── test_schema_validator.py
+│   ├── test_feedback_loop.py
+│   ├── test_metrics.py
+│   ├── test_producer.py
 │   └── test_integration.py        # Test end-to-end con mocks
-├── requirements.txt
+├── requirements.txt               # Dependencias de producción
+├── requirements-dev.txt           # Dependencias de testing
 ├── Dockerfile
 ├── docker-compose.yml
 └── README.md
@@ -117,8 +121,11 @@ brain/
 python -m venv venv
 source venv/bin/activate
 
-# Instalar dependencias
+# Instalar dependencias de producción
 pip install -r requirements.txt
+
+# Instalar dependencias de testing (opcional)
+pip install -r requirements-dev.txt
 ```
 
 ## Ejecutar el servicio
@@ -249,6 +256,8 @@ Bonus no lineal para casos extremos:
 - **Minimización**: Brain recibe alertas pre-filtradas, no tráfico bruto
 - **Audit logging**: Toda acción se registra con timestamp via structlog
 - **Art. 22 GDPR**: Las acciones destructivas requieren aprobación humana (`auto_execute=false`)
+- **Validación al startup**: Brain valida la configuración GDPR al arrancar y emite warnings
+  si la seudonimización o el audit logging están deshabilitados
 
 ## Especificación técnica
 

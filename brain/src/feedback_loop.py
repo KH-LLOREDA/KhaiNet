@@ -9,6 +9,7 @@ Ingests responses from SOC analysts and Shuffle to improve future correlations:
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import structlog
@@ -19,18 +20,20 @@ log = structlog.get_logger()
 
 
 def _safe_eval(data: Any) -> dict[str, Any]:
-    """Safely parse a stored pattern dict from Redis."""
+    """Safely parse a stored pattern dict from Redis.
+
+    Patterns are stored as JSON strings in Redis. This function handles
+    JSON strings, raw dicts, and bytes for backward compatibility.
+    """
     if isinstance(data, dict):
         return data
-    if isinstance(data, str):
-        import ast
-
+    if isinstance(data, (str, bytes)):
+        if isinstance(data, bytes):
+            data = data.decode("utf-8")
         try:
-            return ast.literal_eval(data)
-        except (ValueError, SyntaxError):
+            return json.loads(data)
+        except (json.JSONDecodeError, TypeError, ValueError):
             return {"raw": data}
-    if isinstance(data, bytes):
-        return _safe_eval(data.decode("utf-8"))
     return {"raw": str(data)}
 
 
@@ -92,7 +95,7 @@ class FeedbackLoop:
             "reason": reason,
         }
         if self.redis is not None:
-            await self.redis.lpush("brain:fp_patterns", str(pattern))
+            await self.redis.lpush("brain:fp_patterns", json.dumps(pattern))
         else:
             self._local_fp_patterns.append(pattern)
         log.info("fp_pattern_registered", incident_id=incident_id, reason=reason)
@@ -101,7 +104,7 @@ class FeedbackLoop:
         """Reinforce a true positive correlation pattern."""
         pattern = {"incident_id": incident_id}
         if self.redis is not None:
-            await self.redis.lpush("brain:tp_patterns", str(pattern))
+            await self.redis.lpush("brain:tp_patterns", json.dumps(pattern))
         else:
             self._local_tp_patterns.append(pattern)
         log.info("tp_pattern_reinforced", incident_id=incident_id)
@@ -121,7 +124,9 @@ class FeedbackLoop:
             "adjustment": adjustment,
         }
         if self.redis is not None:
-            await self.redis.lpush("brain:severity_calibrations", str(calibration))
+            await self.redis.lpush(
+                "brain:severity_calibrations", json.dumps(calibration)
+            )
         else:
             self._local_severity_calibrations.append(calibration)
         log.info(

@@ -98,7 +98,11 @@ class AlertConsumer:
                 log.exception("consumer_poll_error", error=str(e))
 
     async def _process_message(self, msg: Any) -> None:
-        """Parse, validate and enqueue a Kafka message."""
+        """Parse, validate and enqueue a Kafka message.
+
+        After successful processing, commits the offset manually
+        (auto-commit is disabled per spec).
+        """
         self._stats["received"] += 1
         try:
             raw = msg.value()
@@ -108,6 +112,8 @@ class AlertConsumer:
             alert = validate_alert(data)
             self._stats["valid"] += 1
             await self.queue.put(alert)
+            # W8: Manual offset commit after successful processing
+            await self._commit_offset(msg)
         except (json.JSONDecodeError, SchemaValidationError) as e:
             self._stats["invalid"] += 1
             log.warning(
@@ -119,6 +125,22 @@ class AlertConsumer:
             )
             # Send to DLQ via the queue as a special marker
             await self._send_to_dlq(msg, str(e))
+            # Commit offset even for invalid messages so we don't reprocess
+            await self._commit_offset(msg)
+
+    async def _commit_offset(self, msg: Any) -> None:
+        """Manually commit the Kafka offset after processing.
+
+        Called after each message is successfully validated and enqueued,
+        or after sending an invalid message to DLQ. This ensures at-least-once
+        processing without reprocessing valid messages on restart.
+        """
+        if self._consumer is None or self._loop is None:
+            return
+        try:
+            await self._loop.run_in_executor(None, self._consumer.commit, msg)
+        except (KafkaException, RuntimeError, OSError) as e:
+            log.warning("offset_commit_failed", error=str(e))
 
     async def _send_to_dlq(self, msg: Any, error: str) -> None:
         """Send invalid message to DLQ. Override or hook for DLQ handler."""

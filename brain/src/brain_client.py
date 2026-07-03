@@ -233,6 +233,8 @@ class BrainLLMClient:
 
         self._http_client: httpx.AsyncClient | None = None
         self._system_prompt = self._load_prompt("correlation.txt")
+        # Pre-extract the system prompt portion (instructions before the input data)
+        self._system_prompt_only = self._extract_system_prompt(self._system_prompt)
 
     def _load_prompt(self, filename: str) -> str:
         """Load a prompt template from config/prompts/."""
@@ -240,6 +242,20 @@ class BrainLLMClient:
         if prompt_path.exists():
             return prompt_path.read_text(encoding="utf-8")
         return ""
+
+    def _extract_system_prompt(self, full_prompt: str) -> str:
+        """Extract the system prompt portion from the full prompt template.
+
+        The correlation.txt prompt contains instructions followed by
+        ``{alert_group}`` and ``{enrichment}`` placeholders. The system
+        prompt is everything before the 'Input alert group:' marker.
+        """
+        marker = "Input alert group:"
+        idx = full_prompt.find(marker)
+        if idx != -1:
+            return full_prompt[:idx].strip()
+        # Fallback: if no marker, use the entire template as system prompt
+        return full_prompt.strip()
 
     def _get_http_client(self) -> httpx.AsyncClient:
         if self._http_client is None or self._http_client.is_closed:
@@ -350,9 +366,7 @@ class BrainLLMClient:
                     "messages": [
                         {
                             "role": "system",
-                            "content": self._system_prompt.split("{alert_group}")[
-                                0
-                            ].strip(),
+                            "content": self._system_prompt_only,
                         },
                         {"role": "user", "content": prompt},
                     ],

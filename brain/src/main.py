@@ -104,9 +104,9 @@ class BrainPipeline:
         self.queue: asyncio.Queue[Alert | None] = asyncio.Queue(maxsize=1000)
         self.metrics = MetricsRecorder()
 
-        # Initialize components
+        # Initialize components — Redis and enrichment clients are wired in setup()
         self.session_manager = SessionManager(
-            redis_client=None,  # Will be set if Redis is available
+            redis_client=None,
             session_timeout_seconds=config.get("redis", {}).get(
                 "session_timeout_seconds", 1800
             ),
@@ -125,19 +125,29 @@ class BrainPipeline:
         self.shuffle_client = ShuffleClient(config.get("shuffle", {}))
         self.producer = IncidentProducer(config.get("kafka", {}))
         self.dlq_handler = DLQHandler(config.get("kafka", {}))
+        self._redis_client: Any = None
 
         self._running = False
         self._worker_tasks: list[asyncio.Task[None]] = []
         self._num_workers = config.get("workers", 3)
 
     async def setup(self) -> None:
-        """Initialize all components."""
+        """Initialize all components and wire external clients."""
         # Start metrics server
         prom_port = self.config.get("prometheus", {}).get("port", 9090)
         try:
             self.metrics.start_metrics_server(prom_port)
         except OSError:
             log.warning("metrics_server_port_in_use", port=prom_port)
+
+        # --- B1: Initialize Redis client ---
+        await self._init_redis()
+
+        # --- B2: Initialize enrichment clients ---
+        await self._init_enrichment_clients()
+
+        # --- W5: Validate GDPR configuration ---
+        self._validate_gdpr_config()
 
         # Set DLQ callback on consumer
         self.consumer = AlertConsumer(self.config.get("kafka", {}), self.queue)
@@ -146,6 +156,123 @@ class BrainPipeline:
         # Start producer and DLQ handler
         await self.producer.start()
         await self.dlq_handler.start()
+
+    async def _init_redis(self) -> None:
+        """Create and inject the Redis async client into SessionManager and BrainLLMClient."""
+        redis_cfg = self.config.get("redis", {})
+        redis_url = redis_cfg.get("url", "redis://localhost:6379/0")
+        try:
+            import redis.asyncio as aioredis
+
+            self._redis_client = aioredis.from_url(redis_url, decode_responses=True)
+            # Test connectivity
+            await self._redis_client.ping()
+            log.info("redis_connected", url=redis_url)
+        except Exception as e:
+            log.warning("redis_unavailable_fallback_inmemory", error=str(e))
+            self._redis_client = None
+
+        # Inject into session manager
+        self.session_manager.redis = self._redis_client
+
+        # Inject into brain client's semantic cache
+        self.brain_client.semantic_cache.redis = self._redis_client
+
+    async def _init_enrichment_clients(self) -> None:
+        """Initialize OpenSearch, GeoIP, MISP, and ClickHouse clients from config."""
+        enrich_cfg = self.config.get("enrichment", {})
+
+        # OpenSearch
+        os_url = enrich_cfg.get("opensearch_url", "")
+        if os_url:
+            try:
+                from opensearchpy import AsyncOpenSearch
+
+                os_client = AsyncOpenSearch(
+                    hosts=[os_url],
+                    use_ssl=False,
+                    verify_certs=False,
+                    ssl_show_warn=False,
+                )
+                self.enricher.set_opensearch_client(os_client)
+                log.info("opensearch_client_initialized", url=os_url)
+            except Exception as e:
+                log.warning("opensearch_init_failed", error=str(e))
+
+        # GeoIP
+        geoip_path = enrich_cfg.get("geoip_db_path", "")
+        if geoip_path:
+            try:
+                from pathlib import Path
+
+                import geoip2.database
+
+                if Path(geoip_path).exists():
+                    reader = geoip2.database.Reader(geoip_path)
+                    self.enricher.set_geoip_reader(reader)
+                    log.info("geoip_reader_initialized", path=geoip_path)
+                else:
+                    log.warning("geoip_db_not_found", path=geoip_path)
+            except Exception as e:
+                log.warning("geoip_init_failed", error=str(e))
+
+        # MISP
+        misp_url = enrich_cfg.get("misp_url", "")
+        misp_key = enrich_cfg.get("misp_api_key", "")
+        if misp_url:
+            try:
+                from pymisp import ExpandedPyMISP
+
+                misp_client = ExpandedPyMISP(
+                    url=misp_url,
+                    key=misp_key,
+                    ssl=enrich_cfg.get("misp_verifycert", False),
+                )
+                self.enricher.set_misp_client(misp_client)
+                log.info("misp_client_initialized", url=misp_url)
+            except Exception as e:
+                log.warning("misp_init_failed", error=str(e))
+
+        # ClickHouse
+        ch_url = enrich_cfg.get("clickhouse_url", "")
+        if ch_url:
+            try:
+                import clickhouse_connect
+
+                from urllib.parse import urlparse
+
+                parsed = urlparse(ch_url)
+                ch_client = clickhouse_connect.get_async_client(
+                    host=parsed.hostname or "localhost",
+                    port=parsed.port or 8123,
+                )
+                self.enricher.set_clickhouse_client(ch_client)
+                log.info("clickhouse_client_initialized", url=ch_url)
+            except Exception as e:
+                log.warning("clickhouse_init_failed", error=str(e))
+
+    def _validate_gdpr_config(self) -> None:
+        """Validate GDPR configuration at startup and log warnings if non-compliant."""
+        gdpr_cfg = self.config.get("gdpr", {})
+        pseudonymize = gdpr_cfg.get("pseudonymize_ips", True)
+        audit_log = gdpr_cfg.get("audit_log_enabled", True)
+
+        if not pseudonymize:
+            log.warning(
+                "gdpr_pseudonymization_disabled",
+                message="IP pseudonymization is disabled — "
+                "ensure raw IPs are not persisted beyond the processing cycle",
+            )
+
+        if not audit_log:
+            log.warning(
+                "gdpr_audit_log_disabled",
+                message="Audit logging is disabled — "
+                "required for GDPR compliance in production",
+            )
+
+        if pseudonymize and audit_log:
+            log.info("gdpr_config_valid", pseudonymize_ips=True, audit_log=True)
 
     async def _dlq_callback(
         self,
@@ -353,6 +480,18 @@ class BrainPipeline:
 
         # Close DLQ handler
         await self.dlq_handler.stop()
+
+        # W10: Close HTTP clients
+        await self.brain_client.close()
+        await self.shuffle_client.close()
+
+        # Close Redis client if it was initialized
+        if self._redis_client is not None:
+            try:
+                await self._redis_client.aclose()
+                log.info("redis_client_closed")
+            except Exception as e:
+                log.warning("redis_close_error", error=str(e))
 
     async def process_single_alert(self, alert: Alert) -> Incident | None:
         """Process a single alert without starting the full pipeline.

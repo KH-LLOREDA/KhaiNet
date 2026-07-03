@@ -267,12 +267,14 @@ async def test_llm_client_cache_hit(test_config, valid_llm_output, mock_llm_resp
             {
                 "alert_id": "1",
                 "src_ip": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1",
+                "raw_event": {"hostname": "SRV-DB-01"},
             }
         ],
         "entity": "abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1",
         "reason": "test",
+        "entities": {"src_hosts": ["SRV-DB-01"]},
     }
-    enrichment = {}
+    enrichment = {"asset_info": {"hostname": "SRV-DB-01"}}
 
     # First call populates cache
     mock_http = MagicMock()

@@ -118,3 +118,65 @@ async def test_enrich_historical_baseline(sample_alert, mock_clickhouse_client):
     assert result.baseline_bytes_out_p99 == 50000
     assert result.actual_bytes_out == 900000
     assert result.deviation_factor == 18.0
+
+
+# ---------------------------------------------------------------------------
+# W7: GeoIP pseudonymization handling tests
+# ---------------------------------------------------------------------------
+
+
+def test_is_pseudonymized_sha256_hash():
+    """SHA-256 hash (64 hex chars) is detected as pseudonymized."""
+    assert Enricher._is_pseudonymized(
+        "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+    )
+
+
+def test_is_pseudonymized_sha1_hash():
+    """SHA-1 hash (40 hex chars) is detected as pseudonymized."""
+    assert Enricher._is_pseudonymized("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")
+
+
+def test_is_pseudonymized_hash_prefix():
+    """IPs with 'hash:' prefix are detected as pseudonymized."""
+    assert Enricher._is_pseudonymized("hash:abc123")
+
+
+def test_is_pseudonymized_real_ipv4():
+    """Real IPv4 addresses are NOT pseudonymized."""
+    assert not Enricher._is_pseudonymized("192.168.1.1")
+    assert not Enricher._is_pseudonymized("10.0.0.1")
+    assert not Enricher._is_pseudonymized("8.8.8.8")
+
+
+def test_is_pseudonymized_real_ipv6():
+    """Real IPv6 addresses are NOT pseudonymized."""
+    assert not Enricher._is_pseudonymized("2001:db8::1")
+    assert not Enricher._is_pseudonymized("fe80::1")
+
+
+@pytest.mark.asyncio
+async def test_geoip_skips_pseudonymized_ips(mock_geoip_reader):
+    """GeoIP lookup skips pseudonymized IPs and returns empty info."""
+    enricher = Enricher({"timeout_seconds": 5})
+    enricher.set_geoip_reader(mock_geoip_reader)
+
+    # Pseudonymized IP (SHA-256 hash)
+    result = await enricher.geoip_lookup(
+        ["a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"]
+    )
+    assert result.dst_country is None
+    # GeoIP reader should not have been called for pseudonymized IP
+    mock_geoip_reader.city.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_geoip_lookup_real_ip(mock_geoip_reader):
+    """GeoIP lookup works for real (non-pseudonymized) IPs."""
+    enricher = Enricher({"timeout_seconds": 5})
+    enricher.set_geoip_reader(mock_geoip_reader)
+
+    result = await enricher.geoip_lookup(["8.8.8.8"])
+    assert result.dst_country == "RU"
+    assert result.dst_city == "Moscow"
+    mock_geoip_reader.city.assert_called_once_with("8.8.8.8")

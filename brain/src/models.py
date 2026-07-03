@@ -353,7 +353,7 @@ class LLMOutput(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    title: str = Field(max_length=200)
+    title: str = Field(max_length=100)
     description: str
     explanation: str
     correlation_reason: str
