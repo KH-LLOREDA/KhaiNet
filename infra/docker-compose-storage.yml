@@ -1,0 +1,126 @@
+# KhaiNet — Stack de almacenamiento (OpenSearch + ClickHouse)
+# Desplegado en docker02 via Portainer API (Docker API directo)
+# Red: khainet-network (172.25.0.0/16) — compartida con Kafka
+#
+# IPs asignadas (por Docker):
+#   .2 = khainet-kafka
+#   .3 = khainet-kafka-ui
+#   .4 = khainet-opensearch-dashboards
+#   .5 = khainet-opensearch
+#   .6 = khainet-clickhouse
+#
+# Puertos expuestos en docker02 (172.26.10.98):
+#   9200 = OpenSearch REST API
+#   5601 = OpenSearch Dashboards
+#   8123 = ClickHouse HTTP
+#   9001 = ClickHouse Native (mapeado desde 9000 interno)
+#   9009 = ClickHouse Inter-server
+#
+# Notas:
+#   - Configuración dev/test (single-node, security plugin deshabilitado).
+#   - Producción requiere cluster multi-nodo + security plugin + SSL + Keystore.
+#   - Retención ISM y seudonimización de IPs se configuran post-deploy via API.
+#   - bootstrap.memory_lock=false (Docker no permite memlock ulimit en este host).
+#   - OpenSearch requiere OPENSEARCH_INITIAL_ADMIN_PASSWORD incluso con security disabled.
+#   - Dashboards requiere entrypoint wrapper para deshabilitar security plugin.
+
+version: "3.8"
+
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.16.0
+    container_name: khainet-opensearch
+    hostname: khainet-opensearch
+    environment:
+      - cluster.name=khainet-cluster
+      - node.name=khainet-opensearch-node1
+      - discovery.type=single-node
+      - bootstrap.memory_lock=false
+      - OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g
+      - plugins.security.disabled=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=Khainet2025Secure
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - khainet-opensearch-data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    networks:
+      - khainet-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q green || grep -q yellow || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+    restart: unless-stopped
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.16.0
+    container_name: khainet-opensearch-dashboards
+    hostname: khainet-opensearch-dashboards
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["echo 'opensearch_security.enabled: false' >> /usr/share/opensearch-dashboards/config/opensearch_dashboards.yml && exec ./opensearch-dashboards-docker-entrypoint.sh opensearch-dashboards"]
+    working_dir: /usr/share/opensearch-dashboards
+    environment:
+      - OPENSEARCH_HOSTS=http://172.25.0.5:9200
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=5601
+      - OPENSEARCH_SSL_VERIFICATION_MODE=none
+      - OPENSEARCH_REQUEST_HEADERS_ALLOWLIST=securitytenant,Authorization
+    ports:
+      - "5601:5601"
+    networks:
+      - khainet-network
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q green || grep -q yellow || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    container_name: khainet-clickhouse
+    hostname: khainet-clickhouse
+    environment:
+      - CLICKHOUSE_DB=khainet
+      - CLICKHOUSE_USER=admin
+      - CLICKHOUSE_PASSWORD=Khainet2025!Secure
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    volumes:
+      - khainet-clickhouse-data:/var/lib/clickhouse
+      - khainet-clickhouse-logs:/var/log/clickhouse-server
+    ports:
+      - "8123:8123"
+      - "9001:9000"
+      - "9009:9009"
+    networks:
+      - khainet-network
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user admin --password 'Khainet2025!Secure' --query 'SELECT 1' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  khainet-network:
+    external: true
+    name: khainet-network
+
+volumes:
+  khainet-opensearch-data:
+    name: khainet-opensearch-data
+  khainet-clickhouse-data:
+    name: khainet-clickhouse-data
+  khainet-clickhouse-logs:
+    name: khainet-clickhouse-logs
