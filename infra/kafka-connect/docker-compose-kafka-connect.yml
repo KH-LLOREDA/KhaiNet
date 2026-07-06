@@ -1,0 +1,60 @@
+# KhaiNet — Kafka Connect (sinks a OpenSearch + ClickHouse)
+# Desplegado en docker02 via Docker API (Portainer Stacks API devuelve 405)
+# Red: khainet-network (172.25.0.0/16) — compartida con Kafka, OpenSearch, ClickHouse
+#
+# IP asignada (por Docker): .7 = khainet-kafka-connect
+# Puerto expuesto en docker02 (172.26.10.98): 8083 = Kafka Connect REST API
+#
+# Connectors configurados via REST API (ver connectors/):
+#   - OpenSearch sink: zeek-*, suricata-alerts, wazuh-events, brain-incidents
+#   - ClickHouse sinks: zeek-conn→network_flows, zeek-dns→dns_events,
+#     zeek-http→http_events, zeek-ssl→ssl_events, ml-scores→ml_scores
+#
+# Topics internos de Kafka Connect (compacted):
+#   connect-configs (1 partition), connect-offsets (25 partitions), connect-status (5 partitions)
+
+version: "3.8"
+
+services:
+  kafka-connect:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: khainet-kafka-connect:latest
+    container_name: khainet-kafka-connect
+    hostname: khainet-kafka-connect
+    environment:
+      # Kafka bootstrap (dentro de la red khainet-network)
+      - CONNECT_BOOTSTRAP_SERVERS=172.25.0.2:9092
+      # REST API
+      - CONNECT_REST_ADVERTISED_HOST_NAME=172.26.10.98
+      - CONNECT_REST_PORT=8083
+      # Group y storage
+      - CONNECT_GROUP_ID=khainet-connect
+      - CONNECT_CONFIG_STORAGE_TOPIC=connect-configs
+      - CONNECT_OFFSET_STORAGE_TOPIC=connect-offsets
+      - CONNECT_STATUS_STORAGE_TOPIC=connect-status
+      - CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR=1
+      - CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR=1
+      - CONNECT_STATUS_STORAGE_REPLICATION_FACTOR=1
+      # Converters (JSON — los mensajes del pipeline ya son JSON)
+      - CONNECT_KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+      - CONNECT_VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+      - CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE=false
+      - CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE=false
+      - CONNECT_INTERNAL_KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+      - CONNECT_INTERNAL_VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+      # Plugin path
+      - CONNECT_PLUGIN_PATH=/usr/share/java/kafka-connect/plugins,/usr/share/confluent-hub-components
+      # Logging
+      - CONNECT_LOG4J_LOGGERS=org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
+    ports:
+      - "8083:8083"
+    networks:
+      - khainet-network
+    restart: unless-stopped
+
+networks:
+  khainet-network:
+    external: true
+    name: khainet-network

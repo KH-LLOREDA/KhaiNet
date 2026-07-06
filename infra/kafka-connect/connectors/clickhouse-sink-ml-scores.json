@@ -1,0 +1,21 @@
+{
+  "name": "clickhouse-sink-ml-scores",
+  "config": {
+    "connector.class": "com.clickhouse.kafka.connect.ClickHouseSinkConnector",
+    "tasks.max": "1",
+    "topics": "ml-scores",
+    "hostname": "172.25.0.6",
+    "port": "8123",
+    "database": "khainet",
+    "username": "admin",
+    "password": "Khainet2025!Secure",
+    "ssl": "false",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "errors.tolerance": "all",
+    "errors.log.enable": "true",
+    "errors.log.include.messages": "true"
+  }
+}

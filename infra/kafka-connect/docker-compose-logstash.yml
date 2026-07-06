@@ -1,0 +1,30 @@
+# KhaiNet — Logstash: Kafka → OpenSearch
+# Desplegado en docker02 via Docker API
+# Red: khainet-network (172.25.0.0/16)
+#
+# IP asignada: .7 = khainet-logstash
+# Sin puerto expuesto (no necesita REST API, consume de Kafka internamente)
+#
+# Imagen: opensearchproject/logstash-oss-with-opensearch-output-plugin
+#   Incluye el plugin nativo de OpenSearch output pre-instalado
+
+version: "3.8"
+
+services:
+  logstash:
+    image: opensearchproject/logstash-oss-with-opensearch-output-plugin:7.16.3
+    container_name: khainet-logstash
+    hostname: khainet-logstash
+    volumes:
+      - ./logstash/kafka-to-opensearch.conf:/usr/share/logstash/pipeline/kafka-to-opensearch.conf:ro
+    environment:
+      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+      - LOG_LEVEL=info
+    networks:
+      - khainet-network
+    restart: unless-stopped
+
+networks:
+  khainet-network:
+    external: true
+    name: khainet-network

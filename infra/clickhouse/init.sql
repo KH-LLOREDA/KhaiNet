@@ -209,3 +209,112 @@ SELECT
     uniqExact(src_ip)         AS unique_src_ips
 FROM khainet.network_flows
 GROUP BY hour, dst_ip;
+
+-- ───────────────────────────────────────────────────────────────
+-- Tablas topic-named (para Kafka Connect ClickHouse sink)
+-- El connector v1.3.9 busca tablas con el mismo nombre que el topic
+-- Tipos compatibles con los datos reales del pipeline (IPs seudonimizadas, arrays)
+-- ───────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS khainet.`zeek-conn`
+(
+    timestamp         String,
+    src_ip            String,
+    dst_ip            String,
+    src_port          UInt32,
+    dst_port          UInt32,
+    protocol          LowCardinality(String),
+    duration          Float64,
+    orig_bytes        UInt64,
+    resp_bytes        UInt64,
+    orig_pkts         UInt32,
+    resp_pkts         UInt32,
+    service           Nullable(String),
+    conn_state        LowCardinality(String),
+    uid               String,
+    ingest_ts         DateTime64(3) DEFAULT now64()
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMMDD(parseDateTimeBestEffort(timestamp))
+ORDER BY (parseDateTimeBestEffort(timestamp), src_ip, dst_ip)
+TTL toDateTime(ingest_ts) + INTERVAL 180 DAY;
+
+CREATE TABLE IF NOT EXISTS khainet.`zeek-dns`
+(
+    timestamp         String,
+    src_ip            String,
+    dst_ip            String,
+    query             String,
+    qtype             LowCardinality(String),
+    qclass            UInt32,
+    rcode             LowCardinality(String),
+    rcode_name        LowCardinality(String),
+    ttl               Array(Int32),
+    answers           Array(String),
+    protocol          LowCardinality(String),
+    uid               String,
+    ingest_ts         DateTime64(3) DEFAULT now64()
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMMDD(parseDateTimeBestEffort(timestamp))
+ORDER BY (parseDateTimeBestEffort(timestamp), src_ip, query)
+TTL toDateTime(ingest_ts) + INTERVAL 180 DAY;
+
+CREATE TABLE IF NOT EXISTS khainet.`zeek-http`
+(
+    timestamp         String,
+    src_ip            String,
+    dst_ip            String,
+    src_port          UInt32,
+    dst_port          UInt32,
+    method            LowCardinality(String),
+    uri               String,
+    status_code       UInt32,
+    request_len       UInt32,
+    response_len      UInt32,
+    user_agent        String,
+    content_type      String,
+    protocol          LowCardinality(String),
+    uid               String,
+    ingest_ts         DateTime64(3) DEFAULT now64()
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMMDD(parseDateTimeBestEffort(timestamp))
+ORDER BY (parseDateTimeBestEffort(timestamp), src_ip, dst_ip)
+TTL toDateTime(ingest_ts) + INTERVAL 180 DAY;
+
+CREATE TABLE IF NOT EXISTS khainet.`zeek-ssl`
+(
+    timestamp         String,
+    src_ip            String,
+    dst_ip            String,
+    src_port          UInt32,
+    dst_port          UInt32,
+    version           LowCardinality(String),
+    cipher            LowCardinality(String),
+    server_name       String,
+    subject           String,
+    issuer            String,
+    protocol          LowCardinality(String),
+    uid               String,
+    ingest_ts         DateTime64(3) DEFAULT now64()
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMMDD(parseDateTimeBestEffort(timestamp))
+ORDER BY (parseDateTimeBestEffort(timestamp), src_ip, dst_ip)
+TTL toDateTime(ingest_ts) + INTERVAL 180 DAY;
+
+CREATE TABLE IF NOT EXISTS khainet.`ml-scores`
+(
+    timestamp         String,
+    src_ip            String,
+    model_name        LowCardinality(String),
+    score             Float64,
+    is_anomaly        UInt8,
+    threshold         Float64,
+    ingest_ts         DateTime64(3) DEFAULT now64()
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMMDD(parseDateTimeBestEffort(timestamp))
+ORDER BY (parseDateTimeBestEffort(timestamp), src_ip, model_name)
+TTL toDateTime(ingest_ts) + INTERVAL 180 DAY;
