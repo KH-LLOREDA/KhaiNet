@@ -401,6 +401,7 @@
         .score-low { color: var(--green); }
         .score-mid { color: var(--yellow); }
         .score-high { color: var(--red); }
+        .score-pill { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.05); }
 
         /* ==================== EVENT ROWS ==================== */
         .event-row {
@@ -1171,9 +1172,15 @@
                         <div class="legend-item"><div class="legend-line" style="background:#2a3a4f;"></div> Tráfico normal</div>
                         <div class="legend-item"><div class="legend-line" style="background:#ef4444;"></div> Tráfico malicioso</div>
                         <div class="legend-item"><div class="legend-line" style="background:#ef4444;border-top:2px dashed #ef4444;"></div> Ruta de incidente</div>
+                        <div class="legend-item"><div class="legend-line" style="background:#f59e0b;border-top:2px dashed #f59e0b;"></div> ⚡ Evento activo (score alto)</div>
                     </div>
                     <svg class="network-map-svg" id="network-svg" width="100%" height="500"></svg>
                 </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><div class="card-title">⚡ Enlaces activos en tiempo real</div><span style="font-size:11px;color:var(--text-dim);">Eventos con score &gt; 0.65</span></div>
+                <div class="card-body no-scroll" id="active-links-list"><div class="empty">Esperando eventos...</div></div>
             </div>
 
             <div class="card">
@@ -1284,6 +1291,7 @@ let topologyData = null;
 let infraServices = null;
 let showIncidentPaths = true;
 let selectedDevice = null;
+let activeLinks = [];  // Real-time active links from detection events
 
 const KAFKA_TOPICS = [
     'zeek-conn', 'zeek-dns', 'zeek-http', 'zeek-ssl',
@@ -1427,6 +1435,16 @@ function updateAllPages(msg) {
 
     // Kafka
     if (stats.kafka) updateKafkaPanel(stats.kafka);
+
+    // Active links for network map
+    if (msg.active_links) {
+        activeLinks = msg.active_links;
+        // Re-render the network map if we're on the network page
+        if (document.getElementById('page-network') && document.getElementById('page-network').classList.contains('active')) {
+            renderNetworkMap();
+            updateActiveLinksPanel();
+        }
+    }
 }
 
 // =========================================================================
@@ -1777,6 +1795,7 @@ async function loadNetworkMap() {
     }
     renderNetworkMap();
     renderNetworkIncidents();
+    updateActiveLinksPanel();
 }
 
 function renderNetworkMap() {
@@ -1846,6 +1865,35 @@ function renderNetworkMap() {
         }
     }
 
+    // Active links — real-time events with high score
+    for (const link of activeLinks) {
+        const from = devicePositions[link.from];
+        const to = devicePositions[link.to];
+        if (!from || !to) continue;
+        const intensity = Math.min(1, link.score);
+        const strokeW = 2 + intensity * 3;
+        const opacity = 0.4 + intensity * 0.6;
+        const mx = (from.x + to.x) / 2;
+        const my = (from.y + to.y) / 2 - 30;
+        const color = link.is_anomaly ? '#ef4444' : '#f59e0b';
+        const dashAnim = link.is_anomaly ? 'dash 0.5s linear infinite' : 'dash 1.5s linear infinite';
+        svgContent += `<path d="M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}" 
+            stroke="${color}" stroke-width="${strokeW}" fill="none" 
+            stroke-dasharray="6,4" opacity="${opacity}" 
+            style="animation: ${dashAnim};">
+            <animate attributeName="opacity" values="${opacity};${opacity * 0.3};${opacity}" dur="1.5s" repeatCount="indefinite"/>
+        </path>`;
+        // Score label
+        svgContent += `<text x="${mx}" y="${my - 5}" text-anchor="middle" font-size="9" fill="${color}" font-weight="bold">
+            ${link.is_anomaly ? '⚠' : '○'} ${link.score.toFixed(2)}
+        </text>`;
+        // Pulsing dot at destination
+        svgContent += `<circle cx="${to.x}" cy="${to.y}" r="3" fill="${color}" opacity="${opacity}">
+            <animate attributeName="r" values="3;8;3" dur="1s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values="${opacity};0.1;${opacity}" dur="1s" repeatCount="indefinite"/>
+        </circle>`;
+    }
+
     // Device nodes
     for (const d of devices) {
         const pos = devicePositions[d.id];
@@ -1902,6 +1950,39 @@ function toggleIncidentPaths() {
     showIncidentPaths = !showIncidentPaths;
     document.getElementById('paths-toggle-text').textContent = showIncidentPaths ? 'Ocultar rutas de incidentes' : 'Mostrar rutas de incidentes';
     renderNetworkMap();
+}
+
+// =========================================================================
+// ACTIVE LINKS PANEL — real-time events on the network map
+// =========================================================================
+function updateActiveLinksPanel() {
+    const container = document.getElementById('active-links-list');
+    if (!container) return;
+    if (!activeLinks.length) {
+        container.innerHTML = '<div class="empty">Sin eventos activos — esperando detecciones...</div>';
+        return;
+    }
+    let html = `<div class="event-row" style="font-weight:600;color:var(--text-dim);font-size:10px;text-transform:uppercase;cursor:default;border-bottom:1px solid var(--border);">
+        <div>Time</div><div>From → To</div><div>Score</div><div>Tipo</div>
+    </div>`;
+    for (const link of activeLinks.slice(0, 15)) {
+        const fromDev = topologyData?.devices.find(d => d.id === link.from);
+        const toDev = topologyData?.devices.find(d => d.id === link.to);
+        const fromName = fromDev ? fromDev.name.substring(0, 15) : link.from;
+        const toName = toDev ? toDev.name.substring(0, 15) : link.to;
+        const cls = link.is_anomaly ? 'event-row anomaly' : 'event-row';
+        const typeBadge = link.is_anomaly
+            ? '<span class="badge badge-anomaly">ANOM</span>'
+            : '<span class="badge badge-normal">SUSP</span>';
+        const scoreCls = link.score >= 0.7 ? 'score-high' : 'score-mid';
+        html += `<div class="${cls}">
+            <div class="event-time">${formatTime(link.timestamp)}</div>
+            <div class="event-ip">${fromName} → ${toName}</div>
+            <div><span class="score-pill ${scoreCls}">${link.score.toFixed(3)}</span></div>
+            <div>${typeBadge}</div>
+        </div>`;
+    }
+    container.innerHTML = html;
 }
 
 // =========================================================================

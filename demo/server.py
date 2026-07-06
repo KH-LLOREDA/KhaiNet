@@ -264,6 +264,11 @@ class DemoEngine:
         # Kafka bridge (parallel event replication)
         self.kafka = KafkaBridge()
 
+        # Device IP pool from network topology (for mapping events to real devices)
+        self._device_ips: list[dict] = []  # populated in initialize()
+        self._ip_to_device: dict[str, str] = {}  # ip → device_id
+        self._active_links: list[dict] = []  # active links for network map
+
     def _pseudonymize(self, seed: str) -> str:
         return hashlib.sha256(f"{self._salt}:{seed}".encode()).hexdigest()[:16]
 
@@ -335,6 +340,14 @@ class DemoEngine:
         # Try connecting to Kafka (non-blocking, graceful fallback)
         self.kafka.try_connect()
 
+        # Build device IP pool from network topology for event generation
+        self._device_ips = [
+            {"id": d["id"], "ip": d["ip"], "zone": d["zone"], "name": d["name"]}
+            for d in NETWORK_TOPOLOGY["devices"]
+        ]
+        self._ip_to_device = {d["ip"]: d["id"] for d in self._device_ips}
+        print(f"[Demo] Device IP pool: {len(self._device_ips)} devices from topology")
+
     def _generate_tick_events(
         self,
     ) -> tuple[
@@ -354,12 +367,20 @@ class DemoEngine:
         conn_events: list[ZeekConn] = []
         ground_truth: dict[str, bool] = {}
 
-        src_hosts = [
-            self._random_ip(f"tick-src-{self._tick_seed}-{i}") for i in range(5)
-        ]
-        dst_hosts = [
-            self._random_ip(f"tick-dst-{self._tick_seed}-{i}") for i in range(10)
-        ]
+        # Use real device IPs from the network topology
+        device_pool = self._device_ips if self._device_ips else []
+        if device_pool:
+            src_devices = rng.sample(device_pool, min(5, len(device_pool)))
+            dst_devices = rng.sample(device_pool, min(10, len(device_pool)))
+            src_hosts = [d["ip"] for d in src_devices]
+            dst_hosts = [d["ip"] for d in dst_devices]
+        else:
+            src_hosts = [
+                self._random_ip(f"tick-src-{self._tick_seed}-{i}") for i in range(5)
+            ]
+            dst_hosts = [
+                self._random_ip(f"tick-dst-{self._tick_seed}-{i}") for i in range(10)
+            ]
 
         anomaly_types = ["scan", "exfiltration", "c2_beaconing", "lateral_movement"]
 
@@ -767,6 +788,61 @@ class DemoEngine:
         event_records.sort(key=lambda x: x["avg_score"], reverse=True)
         self.recent_events = event_records[:50]
 
+        # 9b. Extract active links for the network map
+        # Events with high score → animate the corresponding link in the SVG
+        # Map src_ip/dst_ip to device IDs using the topology
+        active_links = []
+        score_threshold = 0.65
+        seen_pairs = set()
+        for evt_record in event_records:
+            if evt_record["avg_score"] < score_threshold:
+                continue
+            # Find the original conn event to get dst_ip
+            src_ip_full = None
+            dst_ip_full = None
+            for e in conn:
+                if e.src_ip == evt_record["src_ip"].rstrip(".") or e.src_ip.startswith(
+                    evt_record["src_ip"].rstrip(".")
+                ):
+                    src_ip_full = e.src_ip
+                    dst_ip_full = e.dst_ip
+                    break
+            if not src_ip_full:
+                # Try matching by timestamp
+                for e in conn:
+                    if (
+                        abs(
+                            e.timestamp.timestamp()
+                            - datetime.fromisoformat(
+                                evt_record["timestamp"]
+                            ).timestamp()
+                        )
+                        < 1
+                    ):
+                        src_ip_full = e.src_ip
+                        dst_ip_full = e.dst_ip
+                        break
+            if not src_ip_full or not dst_ip_full:
+                continue
+            src_dev = self._ip_to_device.get(src_ip_full)
+            dst_dev = self._ip_to_device.get(dst_ip_full)
+            if not src_dev or not dst_dev:
+                continue
+            pair = f"{src_dev}->{dst_dev}"
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            active_links.append(
+                {
+                    "from": src_dev,
+                    "to": dst_dev,
+                    "score": evt_record["avg_score"],
+                    "is_anomaly": evt_record["is_anomaly"],
+                    "timestamp": evt_record["timestamp"],
+                }
+            )
+        self._active_links = active_links[:20]  # Keep last 20 active links
+
         # 10. Build label records
         label_records = []
         for cl in consensus_labels:
@@ -814,6 +890,7 @@ class DemoEngine:
                 "active_learning": self.active_learning_queue[:5],
                 "stats": self.get_stats(),
                 "source_stats": self._serialize_source_stats(),
+                "active_links": self._active_links,
             }
         )
 
@@ -1451,6 +1528,12 @@ async def get_devices():
 async def get_incidents():
     """Incidentes activos y historicos."""
     return JSONResponse({"incidents": NETWORK_TOPOLOGY["incidents"]})
+
+
+@app.get("/api/network/active-links")
+async def get_active_links():
+    """Enlaces activos en el mapa de red (eventos con score alto en tiempo real)."""
+    return JSONResponse({"active_links": engine._active_links})
 
 
 @app.get("/api/infra/services")
