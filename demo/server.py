@@ -137,7 +137,6 @@ class KafkaBridge:
                 bootstrap_servers="172.26.10.98:9092",
                 value_serializer=lambda v: json.dumps(v, default=str).encode("utf-8"),
                 request_timeout_ms=5000,
-                api_version_auto_timeout_ms=5000,
             )
             self.kafka_admin = KafkaAdminClient(
                 bootstrap_servers="172.26.10.98:9092",
@@ -990,6 +989,474 @@ async def kafka_topics():
             "connected": status.get("connected", False),
         }
     )
+
+
+# ===========================================================================
+# Network topology & device inventory (mock data for design phase)
+# ===========================================================================
+
+# --- Mock network topology ---
+# Represents a typical enterprise network with zones, devices, and connections.
+# When real sensors are deployed, this will be populated from Zeek + asset inventory.
+
+NETWORK_TOPOLOGY = {
+    "zones": [
+        {
+            "id": "internet",
+            "name": "Internet",
+            "type": "external",
+            "color": "#ef4444",
+            "desc": "Tráfico externo — todo lo que entra/sale de la red corporativa",
+        },
+        {
+            "id": "dmz",
+            "name": "DMZ",
+            "type": "dmz",
+            "color": "#f59e0b",
+            "desc": "Servidores expuestos al exterior: web, mail, VPN",
+        },
+        {
+            "id": "core",
+            "name": "Core",
+            "type": "internal",
+            "color": "#3b82f6",
+            "desc": "Servidores internos: AD, DNS, file servers, bases de datos",
+        },
+        {
+            "id": "lan",
+            "name": "LAN",
+            "type": "internal",
+            "color": "#10b981",
+            "desc": "Estaciones de trabajo y dispositivos de usuarios",
+        },
+        {
+            "id": "iot",
+            "name": "IoT/OT",
+            "type": "iot",
+            "color": "#8b5cf6",
+            "desc": "Dispositivos IoT, cámaras, impresoras, SCADA",
+        },
+    ],
+    "devices": [
+        # Internet
+        {
+            "id": "ext-c2",
+            "name": "C2 Server (malicioso)",
+            "ip": "203.0.113.45",
+            "zone": "internet",
+            "type": "external",
+            "os": "unknown",
+            "risk": "critical",
+            "tags": ["c2", "malicious"],
+            "first_seen": "2025-01-15",
+            "notes": "Servidor C2 conocido — beaconing detectado",
+        },
+        # DMZ
+        {
+            "id": "fw-01",
+            "name": "Firewall Perimetral",
+            "ip": "10.0.0.1",
+            "zone": "dmz",
+            "type": "firewall",
+            "os": "pfSense",
+            "risk": "low",
+            "tags": ["perimeter", "critical-infra"],
+            "first_seen": "2024-06-01",
+            "notes": "Firewall principal — todo el tráfico pasa por aquí",
+        },
+        {
+            "id": "web-01",
+            "name": "Web Server",
+            "ip": "10.0.0.10",
+            "zone": "dmz",
+            "type": "server",
+            "os": "Ubuntu 22.04",
+            "risk": "medium",
+            "tags": ["web", "public"],
+            "first_seen": "2024-06-01",
+            "notes": "Servidor web público — nginx + app",
+        },
+        {
+            "id": "mail-01",
+            "name": "Mail Server",
+            "ip": "10.0.0.20",
+            "zone": "dmz",
+            "type": "server",
+            "os": "Debian 12",
+            "risk": "medium",
+            "tags": ["mail", "smtp"],
+            "first_seen": "2024-06-01",
+            "notes": "Postfix + Dovecot",
+        },
+        {
+            "id": "vpn-01",
+            "name": "VPN Gateway",
+            "ip": "10.0.0.30",
+            "zone": "dmz",
+            "type": "gateway",
+            "os": "OpenWrt",
+            "risk": "low",
+            "tags": ["vpn", "remote-access"],
+            "first_seen": "2024-06-01",
+            "notes": "WireGuard VPN para acceso remoto",
+        },
+        # Core
+        {
+            "id": "dc-01",
+            "name": "Domain Controller 01",
+            "ip": "10.1.0.5",
+            "zone": "core",
+            "type": "server",
+            "os": "Windows Server 2019",
+            "risk": "high",
+            "tags": ["ad", "critical-infra", "crown-jewel"],
+            "first_seen": "2024-06-01",
+            "notes": "Active Directory principal — objetivo crítico",
+        },
+        {
+            "id": "dc-02",
+            "name": "Domain Controller 02",
+            "ip": "10.1.0.6",
+            "zone": "core",
+            "type": "server",
+            "os": "Windows Server 2019",
+            "risk": "high",
+            "tags": ["ad", "critical-infra", "crown-jewel"],
+            "first_seen": "2024-06-01",
+            "notes": "Active Directory secundario (redundancia)",
+        },
+        {
+            "id": "fs-01",
+            "name": "File Server",
+            "ip": "10.1.0.20",
+            "zone": "core",
+            "type": "server",
+            "os": "Windows Server 2019",
+            "risk": "medium",
+            "tags": ["file-share", "smb"],
+            "first_seen": "2024-06-01",
+            "notes": "File server con shares departamentales",
+        },
+        {
+            "id": "db-01",
+            "name": "Database Server",
+            "ip": "10.1.0.50",
+            "zone": "core",
+            "type": "server",
+            "os": "RHEL 9",
+            "risk": "high",
+            "tags": ["database", "critical-infra"],
+            "first_seen": "2024-06-01",
+            "notes": "PostgreSQL — datos sensibles de clientes",
+        },
+        {
+            "id": "dns-01",
+            "name": "DNS Server",
+            "ip": "10.1.0.10",
+            "zone": "core",
+            "type": "server",
+            "os": "Ubuntu 22.04",
+            "risk": "low",
+            "tags": ["dns", "infra"],
+            "first_seen": "2024-06-01",
+            "notes": "Bind9 — DNS interno",
+        },
+        # LAN
+        {
+            "id": "ws-01",
+            "name": "Workstation Finanzas",
+            "ip": "10.2.0.100",
+            "zone": "lan",
+            "type": "workstation",
+            "os": "Windows 11",
+            "risk": "medium",
+            "tags": ["finance", "user"],
+            "first_seen": "2024-09-15",
+            "notes": "Equipo del departamento de finanzas",
+        },
+        {
+            "id": "ws-02",
+            "name": "Workstation RRHH",
+            "ip": "10.2.0.101",
+            "zone": "lan",
+            "type": "workstation",
+            "os": "Windows 11",
+            "risk": "low",
+            "tags": ["hr", "user"],
+            "first_seen": "2024-09-15",
+            "notes": "Equipo de RRHH",
+        },
+        {
+            "id": "ws-03",
+            "name": "Workstation IT",
+            "ip": "10.2.0.110",
+            "zone": "lan",
+            "type": "workstation",
+            "os": "Ubuntu 24.04",
+            "risk": "medium",
+            "tags": ["it", "admin"],
+            "first_seen": "2024-06-01",
+            "notes": "Equipo de administración IT",
+        },
+        {
+            "id": "ws-04",
+            "name": "Workstation Comprometida",
+            "ip": "10.2.0.105",
+            "zone": "lan",
+            "type": "workstation",
+            "os": "Windows 11",
+            "risk": "critical",
+            "tags": ["compromised", "patient-zero"],
+            "first_seen": "2024-09-15",
+            "notes": "Patient zero — posible punto de entrada de incidente",
+        },
+        # IoT/OT
+        {
+            "id": "cam-01",
+            "name": "Cámara IP Entrada",
+            "ip": "10.3.0.50",
+            "zone": "iot",
+            "type": "iot",
+            "os": "Embedded",
+            "risk": "medium",
+            "tags": ["camera", "iot"],
+            "first_seen": "2024-06-01",
+            "notes": "Cámara de seguridad — firmware desactualizado",
+        },
+        {
+            "id": "prn-01",
+            "name": "Impresora Red",
+            "ip": "10.3.0.60",
+            "zone": "iot",
+            "type": "iot",
+            "os": "Embedded",
+            "risk": "low",
+            "tags": ["printer", "iot"],
+            "first_seen": "2024-06-01",
+            "notes": "Impresora multifunción de red",
+        },
+        {
+            "id": "scada-01",
+            "name": "PLC Línea 1",
+            "ip": "10.3.0.100",
+            "zone": "iot",
+            "type": "ot",
+            "os": "RTOS",
+            "risk": "high",
+            "tags": ["scada", "ot", "critical-infra"],
+            "first_seen": "2024-03-01",
+            "notes": "Controlador lógico programable — línea de producción",
+        },
+    ],
+    "links": [
+        # Internet ↔ DMZ
+        {"from": "ext-c2", "to": "fw-01", "type": "malicious", "label": "C2 beaconing"},
+        {"from": "fw-01", "to": "web-01", "type": "normal", "label": "HTTP/S"},
+        {"from": "fw-01", "to": "mail-01", "type": "normal", "label": "SMTP"},
+        {"from": "fw-01", "to": "vpn-01", "type": "normal", "label": "VPN"},
+        # DMZ ↔ Core
+        {"from": "web-01", "to": "db-01", "type": "normal", "label": "SQL"},
+        {"from": "mail-01", "to": "dc-01", "type": "normal", "label": "LDAP"},
+        {"from": "vpn-01", "to": "dc-01", "type": "normal", "label": "Auth"},
+        # Core internal
+        {"from": "dc-01", "to": "dc-02", "type": "normal", "label": "AD Sync"},
+        {"from": "dc-01", "to": "dns-01", "type": "normal", "label": "DNS"},
+        {"from": "dc-01", "to": "fs-01", "type": "normal", "label": "SMB"},
+        # Core ↔ LAN
+        {"from": "dc-01", "to": "ws-01", "type": "normal", "label": "AD Auth"},
+        {"from": "dc-01", "to": "ws-02", "type": "normal", "label": "AD Auth"},
+        {"from": "dc-01", "to": "ws-03", "type": "normal", "label": "AD Auth"},
+        {"from": "dc-01", "to": "ws-04", "type": "normal", "label": "AD Auth"},
+        {"from": "fs-01", "to": "ws-01", "type": "normal", "label": "SMB Share"},
+        {"from": "fs-01", "to": "ws-02", "type": "normal", "label": "SMB Share"},
+        # Incident paths (malicious)
+        {
+            "from": "ws-04",
+            "to": "dc-01",
+            "type": "malicious",
+            "label": "Lateral movement",
+        },
+        {"from": "ws-04", "to": "fs-01", "type": "malicious", "label": "Data staging"},
+        {"from": "ws-04", "to": "ext-c2", "type": "malicious", "label": "Exfiltration"},
+        # IoT
+        {"from": "cam-01", "to": "fw-01", "type": "normal", "label": "NTP"},
+        {"from": "scada-01", "to": "ws-03", "type": "normal", "label": "Modbus"},
+    ],
+    "incidents": [
+        {
+            "id": "INC-001",
+            "name": "C2 Beaconing + Exfiltration",
+            "status": "active",
+            "severity": "critical",
+            "patient_zero": "ws-04",
+            "path": ["ext-c2", "fw-01", "ws-04", "dc-01", "fs-01", "ws-04", "ext-c2"],
+            "description": "Workstation comprometida hace beaconing a C2, luego intenta lateral movement al DC, staging en file server, y exfiltration al exterior.",
+            "mitre": ["T1071", "T1021", "T1078", "T1005", "T1041"],
+            "detected_by": ["isolation_forest", "autoencoder", "brain"],
+            "first_seen": "2025-01-15T08:30:00Z",
+        },
+        {
+            "id": "INC-002",
+            "name": "Port Scan desde IoT",
+            "status": "contained",
+            "severity": "medium",
+            "patient_zero": "cam-01",
+            "path": ["cam-01", "fw-01", "dc-01"],
+            "description": "Cámara IP comprometida escaneando puertos del firewall y DC.",
+            "mitre": ["T1595", "T1046"],
+            "detected_by": ["isolation_forest", "suricata"],
+            "first_seen": "2025-01-10T14:00:00Z",
+        },
+    ],
+}
+
+# --- Mock infrastructure services ---
+INFRA_SERVICES = [
+    {
+        "name": "Kafka",
+        "component": "Message Bus",
+        "status": "online",
+        "host": "docker02",
+        "port": 9092,
+        "image": "apache/kafka:latest",
+        "desc": "Bus de mensajes que conecta todos los componentes del pipeline. Los sensores publican eventos, los consumers los procesan.",
+        "category": "core",
+    },
+    {
+        "name": "Kafka-UI",
+        "component": "Management",
+        "status": "online",
+        "host": "docker02",
+        "port": 8089,
+        "image": "provectuslabs/kafka-ui",
+        "desc": "Interfaz web para gestionar topics, ver mensajes y monitorizar el bus Kafka.",
+        "category": "management",
+    },
+    {
+        "name": "Zeek",
+        "component": "Network Sensor",
+        "status": "planned",
+        "host": "sensor-01",
+        "port": None,
+        "image": "zeek/zeek:latest",
+        "desc": "Sensor de red que captura y analiza tráfico. Genera logs estructurados: conn, dns, http, ssl. Es el 'ojo' de KhaiNet sobre la red.",
+        "category": "sensor",
+    },
+    {
+        "name": "Suricata",
+        "component": "IDS/IPS",
+        "status": "planned",
+        "host": "sensor-01",
+        "port": None,
+        "image": "jasonish/suricata",
+        "desc": "Sistema de detección de intrusos basado en reglas. Detecta patrones conocidos (signatures) y genera alertas con severidad y categorización MITRE ATT&CK.",
+        "category": "sensor",
+    },
+    {
+        "name": "Wazuh",
+        "component": "HIDS/SIEM",
+        "status": "planned",
+        "host": "docker02",
+        "port": 55000,
+        "image": "wazuh/wazuh-manager:latest",
+        "desc": "HIDS que monitoriza endpoints (file integrity, rootkits, logs de auth). Actúa como fuente de etiquetas para el auto-etiquetado.",
+        "category": "sensor",
+    },
+    {
+        "name": "OpenSearch",
+        "component": "Search & Storage",
+        "status": "planned",
+        "host": "docker02",
+        "port": 9200,
+        "image": "opensearchproject/opensearch:latest",
+        "desc": "Almacenamiento y búsqueda de logs. Indexa eventos de Zeek, alertas de Suricata y eventos de Wazuh. Dashboards para visualización.",
+        "category": "storage",
+    },
+    {
+        "name": "OpenSearch Dashboards",
+        "component": "Visualization",
+        "status": "planned",
+        "host": "docker02",
+        "port": 5601,
+        "image": "opensearchproject/opensearch-dashboards",
+        "desc": "Interfaz web para crear dashboards y visualizaciones sobre los datos almacenados en OpenSearch.",
+        "category": "storage",
+    },
+    {
+        "name": "ClickHouse",
+        "component": "Analytics DB",
+        "status": "planned",
+        "host": "docker03",
+        "port": 8123,
+        "image": "clickhouse/clickhouse-server",
+        "desc": "Base de datos columnar para analytics a alta velocidad. Almacena agregados y métricas para consultas rápidas.",
+        "category": "storage",
+    },
+    {
+        "name": "Brain",
+        "component": "AI Correlation",
+        "status": "online",
+        "host": "docker02",
+        "port": 8001,
+        "image": "khainet/brain:latest",
+        "desc": "Capa de IA que correlaciona eventos de múltiples fuentes, asigna tácticas MITRE ATT&CK y genera narrativas de incidentes.",
+        "category": "ai",
+    },
+    {
+        "name": "Shuffle",
+        "component": "SOAR",
+        "status": "planned",
+        "host": "docker02",
+        "port": 3001,
+        "image": "shuffle/shuffle:latest",
+        "desc": "Orquestador de respuestas automatizadas (SOAR). Ejecuta playbooks cuando se detectan incidentes: aísla hosts, bloquea IPs, notifica al equipo.",
+        "category": "soar",
+    },
+    {
+        "name": "TheHive",
+        "component": "Incident Response",
+        "status": "planned",
+        "host": "docker03",
+        "port": 9000,
+        "image": "thehiveproject/thehive:latest",
+        "desc": "Plataforma de gestión de incidentes. Crea casos, asigna tareas, hace seguimiento de investigaciones.",
+        "category": "soar",
+    },
+    {
+        "name": "MISP",
+        "component": "Threat Intel",
+        "status": "planned",
+        "host": "docker03",
+        "port": 80,
+        "image": "harvardit5/misp:latest",
+        "desc": "Plataforma de inteligencia de amenazas. Comparte y consume IOCs (IPs, dominios, hashes maliciosos). Fuente de etiquetas para auto-etiquetado.",
+        "category": "intel",
+    },
+]
+
+
+@app.get("/api/network/topology")
+async def get_topology():
+    """Topología de red: zonas, dispositivos, conexiones e incidentes."""
+    return JSONResponse(NETWORK_TOPOLOGY)
+
+
+@app.get("/api/network/devices")
+async def get_devices():
+    """Inventario de dispositivos de red."""
+    return JSONResponse({"devices": NETWORK_TOPOLOGY["devices"]})
+
+
+@app.get("/api/network/incidents")
+async def get_incidents():
+    """Incidentes activos y historicos."""
+    return JSONResponse({"incidents": NETWORK_TOPOLOGY["incidents"]})
+
+
+@app.get("/api/infra/services")
+async def get_infra_services():
+    """Estado de los servicios de infraestructura del stack KhaiNet."""
+    return JSONResponse({"services": INFRA_SERVICES})
 
 
 @app.websocket("/ws")
