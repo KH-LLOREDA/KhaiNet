@@ -808,16 +808,212 @@
         }
         .tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
 
+        /* ==================== HAMBURGER BUTTON ==================== */
+        .hamburger {
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            gap: 5px;
+            width: 36px; height: 36px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            padding: 0 8px;
+            flex-shrink: 0;
+            transition: border-color 0.15s;
+        }
+        .hamburger:hover { border-color: var(--border-light); }
+        .hamburger span {
+            display: block;
+            width: 100%; height: 2px;
+            background: var(--text);
+            border-radius: 1px;
+            transition: all 0.25s;
+        }
+        .hamburger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+        .hamburger.open span:nth-child(2) { opacity: 0; }
+        .hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+        /* ==================== OVERLAY ==================== */
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 150;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .sidebar-overlay.visible {
+            display: block;
+            opacity: 1;
+        }
+
+        /* ==================== TABLE SCROLL WRAPPER ==================== */
+        .table-scroll {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .table-scroll .data-table { min-width: 700px; }
+
         /* ==================== RESPONSIVE ==================== */
+
+        /* Tablet landscape / small desktop */
         @media (max-width: 1200px) {
             .kpi-row { grid-template-columns: repeat(3, 1fr); }
             .grid-3 { grid-template-columns: 1fr 1fr; }
         }
+
+        /* Tablet portrait */
         @media (max-width: 900px) {
-            .sidebar { transform: translateX(-100%); }
+            .sidebar {
+                transform: translateX(-100%);
+                box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+            }
+            .sidebar.open { transform: translateX(0); }
             .main { margin-left: 0; }
+            .hamburger { display: flex; }
             .kpi-row { grid-template-columns: repeat(2, 1fr); }
             .grid-3, .grid-2, .grid-4 { grid-template-columns: 1fr; }
+            .topbar { padding: 10px 16px; }
+            .content { padding: 16px; }
+            .topbar-right { gap: 8px; }
+            .status-badge { padding: 4px 10px; font-size: 11px; }
+            .tick-counter { font-size: 11px; }
+            .topbar-title { font-size: 16px; }
+            .topbar-subtitle { font-size: 11px; }
+            .page-title { font-size: 20px; }
+            .page-desc { font-size: 13px; }
+            /* Event row: hide individual model scores, keep avg + label */
+            .event-row {
+                grid-template-columns: 50px 1fr 60px 70px;
+            }
+            .event-row > div:nth-child(3),
+            .event-row > div:nth-child(4),
+            .event-row > div:nth-child(5) { display: none; }
+            /* Source rows: stack vertically */
+            .source-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .source-stats-mini { flex-wrap: wrap; }
+            /* Kafka panel: stack */
+            .kafka-meta-row { font-size: 11px; }
+            .kafka-events-count { font-size: 20px; }
+            /* Device detail grid: single column */
+            .device-detail-grid { grid-template-columns: 1fr; }
+            /* Incident card: smaller padding */
+            .incident-card { padding: 12px; }
+            .incident-card-title { font-size: 14px; }
+            /* Pipeline: smaller steps */
+            .pipeline-step { padding: 6px 10px; font-size: 11px; }
+            /* Connection status: bottom-left to avoid overlap */
+            .conn-status { bottom: 12px; right: 12px; font-size: 11px; padding: 6px 12px; }
+            /* Network map: allow horizontal scroll */
+            .network-map-container { padding: 12px; }
+            .network-map-svg { min-width: 700px; }
+            /* Architecture components: single column */
+            .arch-components { grid-template-columns: 1fr; }
+            /* Active learning: buttons full width */
+            .al-buttons { flex-direction: column; gap: 6px; }
+            .al-buttons .btn { width: 100%; text-align: center; }
+            /* Service cards: stack meta */
+            .service-card-meta { flex-wrap: wrap; gap: 8px; }
+        }
+
+        /* Mobile phone */
+        @media (max-width: 600px) {
+            .kpi-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .kpi-card { padding: 12px 8px; }
+            .kpi-value { font-size: 22px; }
+            .kpi-label { font-size: 9px; }
+            .topbar { padding: 8px 12px; }
+            .topbar-title { font-size: 15px; }
+            .topbar-subtitle { font-size: 10px; }
+            .content { padding: 12px; }
+            .page-title { font-size: 18px; }
+            .page-desc { font-size: 12px; }
+            .card-body { padding: 10px 12px; }
+            .card-header { padding: 10px 12px; }
+            .card-title { font-size: 13px; }
+            /* Hide tick counter on phone, keep status badge */
+            .tick-counter { display: none; }
+            .status-badge { padding: 3px 8px; font-size: 10px; }
+            .status-badge .status-dot { width: 6px; height: 6px; }
+            /* Event row: even more compact */
+            .event-row {
+                grid-template-columns: 44px 1fr 55px 60px;
+                gap: 6px;
+                padding: 6px 10px;
+                font-size: 11px;
+            }
+            .event-time { font-size: 10px; }
+            .event-ip { font-size: 10px; }
+            /* Info box: smaller text */
+            .info-box-body { font-size: 12px; line-height: 1.6; padding: 0 12px 12px; }
+            .info-box-title { font-size: 12px; }
+            /* Pipeline: wrap and compact */
+            .pipeline { padding: 10px; gap: 6px; }
+            .pipeline-step { padding: 5px 8px; font-size: 10px; }
+            .pipeline-arrow { font-size: 12px; }
+            /* Labels: compact */
+            .label-item { padding: 6px 10px; font-size: 11px; }
+            /* Active learning: compact */
+            .al-item { padding: 10px; }
+            .al-scores { flex-wrap: wrap; gap: 4px; }
+            .al-score-pill { font-size: 10px; padding: 2px 6px; }
+            /* Incident path: wrap better */
+            .incident-path-vis { padding: 8px; gap: 3px; }
+            .path-node { padding: 3px 8px; font-size: 10px; }
+            .path-arrow { font-size: 12px; }
+            /* Device detail: compact */
+            .device-detail { padding: 14px; }
+            .device-detail-name { font-size: 16px; }
+            /* Map legend: wrap tightly */
+            .map-legend { gap: 10px; padding: 8px 0; }
+            .legend-item { font-size: 11px; }
+            /* Kafka topics: compact */
+            .kafka-topic-row { font-size: 11px; padding: 5px 8px; }
+            /* Service card: compact */
+            .service-card { padding: 12px; }
+            .service-card-name { font-size: 14px; }
+            /* Architecture: compact */
+            .arch-layer-header { padding: 10px 12px; }
+            .arch-layer-title { font-size: 14px; }
+            .arch-layer-desc { font-size: 11px; }
+            .arch-component { padding: 10px; }
+            .arch-component-name { font-size: 12px; }
+            .arch-component-desc { font-size: 11px; }
+            /* Conn status: hide text on very small screens */
+            .conn-status { padding: 6px 10px; }
+            /* Sidebar: slightly narrower */
+            .sidebar { width: 200px; }
+            :root { --sidebar-w: 200px; }
+        }
+
+        /* Small phone */
+        @media (max-width: 400px) {
+            .kpi-row { grid-template-columns: 1fr; }
+            .kpi-value { font-size: 20px; }
+            .topbar-right .status-badge span { display: none; }
+            .topbar-right .status-badge { padding: 4px; }
+            .topbar-right .status-badge .status-dot { width: 8px; height: 8px; }
+            .page-title { font-size: 16px; }
+            .content { padding: 10px; }
+            .card-body { padding: 8px 10px; }
+            .card-header { padding: 8px 10px; }
+            .event-row {
+                grid-template-columns: 40px 1fr 50px 55px;
+                gap: 4px;
+                padding: 5px 8px;
+                font-size: 10px;
+            }
+            .pipeline-step { padding: 4px 6px; font-size: 9px; }
+            .conn-status span { display: none; }
+            .conn-status { padding: 8px; }
+            .conn-dot { width: 10px; height: 10px; }
         }
     </style>
 </head>
@@ -870,12 +1066,20 @@
     </div>
 </div>
 
+<!-- ==================== SIDEBAR OVERLAY (mobile) ==================== -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
 <!-- ==================== MAIN ==================== -->
 <div class="main">
     <div class="topbar">
-        <div>
-            <div class="topbar-title" id="topbar-title">Dashboard</div>
-            <div class="topbar-subtitle" id="topbar-subtitle">Vista general del sistema</div>
+        <div style="display:flex;align-items:center;gap:12px;">
+            <button class="hamburger" id="hamburger" onclick="toggleSidebar()" aria-label="Menú">
+                <span></span><span></span><span></span>
+            </button>
+            <div>
+                <div class="topbar-title" id="topbar-title">Dashboard</div>
+                <div class="topbar-subtitle" id="topbar-subtitle">Vista general del sistema</div>
+            </div>
         </div>
         <div class="topbar-right">
             <div class="status-badge">
@@ -1112,6 +1316,7 @@
                     <span style="font-size:11px;color:var(--text-dim);" id="device-count">—</span>
                 </div>
                 <div class="card-body no-scroll">
+                    <div class="table-scroll">
                     <table class="data-table" id="devices-table">
                         <thead>
                             <tr>
@@ -1127,6 +1332,7 @@
                         </thead>
                         <tbody id="devices-tbody"></tbody>
                     </table>
+                    </div>
                 </div>
             </div>
 
@@ -1310,6 +1516,27 @@ const ROUTES = {
 };
 
 // =========================================================================
+// SIDEBAR TOGGLE (mobile)
+// =========================================================================
+function toggleSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    const hamburger = document.getElementById('hamburger');
+    const isOpen = sidebar.classList.toggle('open');
+    overlay.classList.toggle('visible', isOpen);
+    hamburger.classList.toggle('open', isOpen);
+}
+
+function closeSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    const hamburger = document.getElementById('hamburger');
+    sidebar.classList.remove('open');
+    overlay.classList.remove('visible');
+    hamburger.classList.remove('open');
+}
+
+// =========================================================================
 // ROUTER
 // =========================================================================
 function navigate(route) {
@@ -1331,6 +1558,8 @@ function navigate(route) {
     if (route === 'incidents') loadIncidents();
     if (route === 'infrastructure') loadInfraServices();
     if (route === 'architecture') loadArchitecture();
+    // Close sidebar on navigate (mobile)
+    closeSidebar();
     // Update URL hash
     window.location.hash = route;
 }
