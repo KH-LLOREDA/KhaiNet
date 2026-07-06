@@ -1,0 +1,130 @@
+content: version: "3.8"
+
+# KhaiNet — Sensores reales: Zeek, Suricata, Wazuh, Filebeat
+# Desplegado en docker02 (172.26.10.98) via Docker API
+# Red: khainet-network (172.25.0.0/16)
+
+services:
+  # ============================================================
+  # Zeek — Sensor de tráfico de red (procesa PCAP → logs JSON)
+  # ============================================================
+  khainet-zeek:
+    image: zeek/zeek:7.0.0
+    container_name: khainet-zeek
+    restart: unless-stopped
+    networks:
+      khainet-network:
+        ipv4_address: 172.25.0.9
+    volumes:
+      - khainet-zeek-pcap:/data/pcap
+      - khainet-zeek-logs:/data/logs
+      - ./zeek/site-local.zeek:/usr/local/zeek/share/zeek/site/local.zeek:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "Zeek esperando PCAPs en /data/pcap..."
+        while true; do
+          if ls /data/pcap/*.pcap 1>/dev/null 2>&1; then
+            echo "Procesando PCAPs..."
+            for f in /data/pcap/*.pcap; do
+              echo "Zeek procesando: $$f"
+              zeek -r $$f -C LogAscii::use_json=T -e 'redef Log::default_rotation_interval = 0secs;' local
+              mv /usr/local/zeek/logs/* /data/logs/ 2>/dev/null || true
+            done
+            echo "Zeek: procesamiento completo"
+          fi
+          sleep 30
+        done
+
+  # ============================================================
+  # Suricata — IDS/IPS (analiza PCAP → eve.json con alertas)
+  # ============================================================
+  khainet-suricata:
+    image: jasonish/suricata:7.0.0
+    container_name: khainet-suricata
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+    networks:
+      khainet-network:
+        ipv4_address: 172.25.0.10
+    volumes:
+      - khainet-suricata-pcap:/data/pcap
+      - khainet-suricata-logs:/var/log/suricata
+      - ./suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "Suricata esperando PCAPs en /data/pcap..."
+        while true; do
+          if ls /data/pcap/*.pcap 1>/dev/null 2>&1; then
+            echo "Procesando PCAPs..."
+            for f in /data/pcap/*.pcap; do
+              echo "Suricata procesando: $$f"
+              suricata -r $$f -c /etc/suricata/suricata.yaml -l /var/log/suricata --runmode single
+            done
+            echo "Suricata: procesamiento completo"
+          fi
+          sleep 30
+        done
+
+  # ============================================================
+  # Wazuh — HIDS/SIEM (manager + alerts)
+  # ============================================================
+  khainet-wazuh:
+    image: wazuh/wazuh-manager:4.7.0
+    container_name: khainet-wazuh
+    restart: unless-stopped
+    hostname: khainet-wazuh
+    networks:
+      khainet-network:
+        ipv4_address: 172.25.0.11
+    ports:
+      - "1514:1514/udp"
+      - "1515:1515/tcp"
+      - "55000:55000/tcp"
+    environment:
+      - INDEXER_URL=172.25.0.5
+      - FILEBEAT_SSL_VERIFICATION=false
+    volumes:
+      - khainet-wazuh-data:/var/ossec/data
+      - khainet-wazuh-logs:/var/ossec/logs
+      - khainet-wazuh-etc:/var/ossec/etc
+      - ./wazuh/ossec.conf:/wazuh-config-mount/etc/ossec.conf:ro
+
+  # ============================================================
+  # Filebeat — Shipper (logs → Kafka topics)
+  # ============================================================
+  khainet-filebeat:
+    image: docker.elastic.co/beats/filebeat:7.16.3
+    container_name: khainet-filebeat
+    restart: unless-stopped
+    user: root
+    networks:
+      khainet-network:
+        ipv4_address: 172.25.0.12
+    volumes:
+      - khainet-zeek-logs:/data/zeek:ro
+      - khainet-suricata-logs:/data/suricata:ro
+      - khainet-wazuh-logs:/data/wazuh:ro
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+    command: ["filebeat", "-e", "-c", "/usr/share/filebeat/filebeat.yml"]
+    depends_on:
+      - khainet-zeek
+      - khainet-suricata
+      - khainet-wazuh
+
+networks:
+  khainet-network:
+    external: true
+    name: khainet-network
+
+volumes:
+  khainet-zeek-pcap:
+  khainet-zeek-logs:
+  khainet-suricata-pcap:
+  khainet-suricata-logs:
+  khainet-wazuh-data:
+  khainet-wazuh-logs:
+  khainet-wazuh-etc:

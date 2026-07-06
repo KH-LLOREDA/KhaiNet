@@ -1,0 +1,93 @@
+%YAML 1.1
+---
+# suricata.yaml — Config Suricata para KhaiNet
+# Configuración minimalista para análisis offline de PCAPs
+
+vars:
+  address-groups:
+    HOME_NET: "[10.0.0.0/8,172.16.0.0/12,192.168.0.0/16]"
+    EXTERNAL_NET: "!$HOME_NET"
+    HTTP_SERVERS: "$HOME_NET"
+    DNS_SERVERS: "$HOME_NET"
+    SMTP_SERVERS: "$HOME_NET"
+    SSH_SERVERS: "$HOME_NET"
+  port-groups:
+    HTTP_PORTS: "80"
+    SHELLCODE_PORTS: "!80"
+    SSH_PORTS: "22"
+    DNS_PORTS: "53"
+
+default-log-dir: /var/log/suricata/
+stats:
+  enabled: yes
+  interval: 8
+
+# Outputs
+outputs:
+  - eve:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      types:
+        - alert
+        - http
+        - dns
+        - tls
+        - files:
+            force-magic: no
+        - ssh
+        - stats:
+            totals: yes
+        - flow
+  - fast:
+      enabled: no
+  - stats:
+      enabled: yes
+      filename: stats.log
+  - unified2-alert:
+      enabled: no
+
+# App layer
+app-layer:
+  protocols:
+    http:
+      enabled: yes
+      libhtp:
+        default-config:
+          personality: IDS
+    dns:
+      tcp:
+        enabled: yes
+      udp:
+        enabled: yes
+    tls:
+      enabled: yes
+    ssh:
+      enabled: yes
+
+# Detection
+default-rule-path: /var/lib/suricata/rules
+rule-files:
+  - "*.rules"
+
+# Logging
+logging:
+  default-log-level: notice
+  outputs:
+    - console:
+        enabled: yes
+
+# Pcap
+pcap:
+  - interface: eth0
+
+# Runmode
+runmode: single
+
+# Net
+af-packet:
+  - interface: eth0
+    cluster-id: 99
+    cluster-type: cluster_flow
+    defrag: yes
+    use-mmap: yes
