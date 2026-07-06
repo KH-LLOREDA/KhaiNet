@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KhaiNet — NDR Dashboard</title>
+    <style>
+        :root {
+            --bg: #0a0e1a;
+            --bg-card: #111827;
+            --bg-card-hover: #1a2332;
+            --border: #1e2d3f;
+            --text: #e2e8f0;
+            --text-dim: #64748b;
+            --accent: #3b82f6;
+            --accent-dim: #1e3a5f;
+            --green: #10b981;
+            --red: #ef4444;
+            --yellow: #f59e0b;
+            --orange: #f97316;
+            --purple: #8b5cf6;
+            --cyan: #06b6d4;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-size: 14px;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #0d1426, #111827);
+            border-bottom: 2px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .header-left { display: flex; align-items: center; gap: 16px; }
+        .logo {
+            font-size: 24px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent), var(--cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+        .logo-sub { font-size: 12px; color: var(--text-dim); margin-top: -2px; }
+        .header-right { display: flex; align-items: center; gap: 12px; }
+        .status-badge {
+            display: flex; align-items: center; gap: 8px;
+            padding: 6px 14px; border-radius: 20px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            font-size: 12px; color: var(--green);
+        }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--green);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .tick-counter {
+            font-size: 12px; color: var(--text-dim);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Layout */
+        .container { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        /* KPI Cards */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .kpi-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+        }
+        .kpi-value {
+            font-size: 28px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+        .kpi-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .card-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card-body { padding: 12px 16px; max-height: 500px; overflow-y: auto; }
+        .card-body::-webkit-scrollbar { width: 6px; }
+        .card-body::-webkit-scrollbar-track { background: var(--bg); }
+        .card-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        /* Event table */
+        .event-row {
+            display: grid;
+            grid-template-columns: 60px 1fr 80px 80px 80px 80px 60px;
+            gap: 8px;
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(30, 45, 63, 0.5);
+            align-items: center;
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .event-row:hover { background: var(--bg-card-hover); }
+        .event-row.anomaly { background: rgba(239, 68, 68, 0.05); }
+        .event-row.anomaly:hover { background: rgba(239, 68, 68, 0.1); }
+        .event-time { color: var(--text-dim); font-size: 11px; }
+        .event-ip { font-family: 'Courier New', monospace; font-size: 11px; }
+        .score-bar {
+            height: 4px; border-radius: 2px; background: var(--border);
+            position: relative; overflow: hidden;
+        }
+        .score-fill {
+            height: 100%; border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+        .score-text { font-size: 11px; text-align: center; }
+        .badge {
+            display: inline-block; padding: 2px 8px; border-radius: 10px;
+            font-size: 10px; font-weight: 600;
+        }
+        .badge-anomaly { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+        .badge-normal { background: rgba(16, 185, 129, 0.15); color: var(--green); }
+        .badge-labeled { background: rgba(59, 130, 246, 0.15); color: var(--accent); }
+        .badge-unlabeled { background: rgba(245, 158, 11, 0.15); color: var(--yellow); }
+
+        /* Source stats */
+        .source-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(30, 45, 63, 0.5);
+        }
+        .source-name {
+            display: flex; align-items: center; gap: 8px;
+            font-weight: 600; font-size: 13px;
+        }
+        .source-icon { width: 10px; height: 10px; border-radius: 50%; }
+        .source-stats-mini {
+            display: flex; gap: 12px; font-size: 11px; color: var(--text-dim);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Active learning */
+        .al-item {
+            background: rgba(59, 130, 246, 0.05);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .al-item-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px;
+        }
+        .al-scores {
+            display: flex; gap: 8px; margin-bottom: 8px;
+        }
+        .al-score-pill {
+            padding: 3px 8px; border-radius: 12px;
+            font-size: 11px; font-variant-numeric: tabular-nums;
+            background: var(--bg);
+        }
+        .al-buttons { display: flex; gap: 8px; }
+        .btn {
+            padding: 6px 16px; border-radius: 6px; border: none;
+            font-size: 12px; font-weight: 600; cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-confirm {
+            background: rgba(239, 68, 68, 0.2); color: var(--red);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        .btn-confirm:hover { background: rgba(239, 68, 68, 0.3); }
+        .btn-reject {
+            background: rgba(16, 185, 129, 0.2); color: var(--green);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        .btn-reject:hover { background: rgba(16, 185, 129, 0.3); }
+
+        /* Label flow */
+        .label-item {
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(30, 45, 63, 0.5);
+            font-size: 12px;
+        }
+        .label-votes {
+            display: flex; gap: 4px; margin-top: 4px;
+        }
+        .vote-tag {
+            padding: 1px 6px; border-radius: 8px; font-size: 10px;
+        }
+        .vote-pos { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+        .vote-neg { background: rgba(16, 185, 129, 0.15); color: var(--green); }
+
+        /* Pipeline diagram */
+        .pipeline {
+            display: flex; align-items: center; gap: 4px;
+            padding: 16px; flex-wrap: wrap;
+        }
+        .pipeline-step {
+            padding: 8px 14px; border-radius: 8px;
+            font-size: 12px; font-weight: 600;
+            background: var(--bg); border: 1px solid var(--border);
+        }
+        .pipeline-arrow { color: var(--text-dim); font-size: 16px; }
+        .pipeline-step.active {
+            border-color: var(--accent);
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--accent);
+        }
+
+        /* Model status */
+        .model-status {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 12px; border-bottom: 1px solid rgba(30, 45, 63, 0.5);
+        }
+        .model-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+        }
+        .model-dot.active { background: var(--green); box-shadow: 0 0 6px rgba(16,185,129,0.5); }
+        .model-dot.inactive { background: var(--text-dim); }
+
+        /* Empty state */
+        .empty {
+            text-align: center; padding: 40px 20px; color: var(--text-dim);
+        }
+
+        /* Connection status */
+        .conn-status {
+            position: fixed; bottom: 16px; right: 16px;
+            padding: 8px 16px; border-radius: 8px;
+            background: var(--bg-card); border: 1px solid var(--border);
+            font-size: 12px; display: flex; align-items: center; gap: 8px;
+            z-index: 100;
+        }
+        .conn-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--green); animation: pulse 2s infinite;
+        }
+        .conn-dot.disconnected { background: var(--red); }
+
+        /* Score colors */
+        .score-low { color: var(--green); }
+        .score-mid { color: var(--yellow); }
+        .score-high { color: var(--red); }
+
+        /* Kafka panel */
+        .kafka-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+        .kafka-panel-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.15s;
+        }
+        .kafka-panel-header:hover { background: var(--bg-card-hover); }
+        .kafka-panel-title {
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .kafka-toggle {
+            font-size: 12px;
+            color: var(--text-dim);
+            transition: transform 0.2s;
+        }
+        .kafka-toggle.collapsed { transform: rotate(-90deg); }
+        .kafka-panel-body {
+            padding: 16px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+            max-height: 600px;
+            opacity: 1;
+        }
+        .kafka-panel-body.collapsed {
+            max-height: 0;
+            opacity: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            overflow: hidden;
+        }
+        .kafka-status-box {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .kafka-conn-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+        }
+        .kafka-conn-dot {
+            width: 12px; height: 12px; border-radius: 50%;
+            background: var(--red);
+        }
+        .kafka-conn-dot.connected {
+            background: var(--green);
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+            animation: pulse 2s infinite;
+        }
+        .kafka-conn-text { font-weight: 600; }
+        .kafka-conn-text.connected { color: var(--green); }
+        .kafka-conn-text.disconnected { color: var(--text-dim); }
+        .kafka-meta-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-dim);
+            padding: 4px 0;
+        }
+        .kafka-meta-value {
+            color: var(--text);
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+        }
+        .kafka-events-count {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--cyan);
+            font-variant-numeric: tabular-nums;
+        }
+        .kafka-topics-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .kafka-topic-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 10px;
+            background: var(--bg);
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+        }
+        .kafka-topic-name { color: var(--text); }
+        .kafka-topic-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+        }
+        .kafka-topic-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+        }
+        .kafka-topic-dot.active { background: var(--green); }
+        .kafka-topic-dot.inactive { background: var(--text-dim); opacity: 0.4; }
+        .kafka-topic-label { color: var(--text-dim); }
+        .kafka-topic-label.active { color: var(--green); }
+        .kafka-ui-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.15);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: 600;
+            transition: background 0.15s;
+        }
+        .kafka-ui-link:hover { background: rgba(59, 130, 246, 0.25); }
+        .kafka-fallback {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 20px;
+            color: var(--text-dim);
+            font-size: 13px;
+        }
+        .kafka-fallback-icon { font-size: 28px; margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="header-left">
+        <div>
+            <div class="logo">KhaiNet</div>
+            <div class="logo-sub">NDR Platform · Detection + Auto-Labeling Demo</div>
+        </div>
+    </div>
+    <div class="header-right">
+        <div class="status-badge">
+            <div class="status-dot"></div>
+            <span id="model-status">Inicializando modelos...</span>
+        </div>
+        <div class="tick-counter">Tick: <span id="tick-count">0</span></div>
+    </div>
+</div>
+
+<div class="container">
+    <!-- KPI Row -->
+    <div class="kpi-row">
+        <div class="kpi-card">
+            <div class="kpi-value" id="kpi-events">0</div>
+            <div class="kpi-label">Eventos totales</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value" id="kpi-anomalies" style="color: var(--red);">0</div>
+            <div class="kpi-label">Anomalías reales</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value" id="kpi-labeled" style="color: var(--accent);">0</div>
+            <div class="kpi-label">Eventos etiquetados</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value" id="kpi-unlabeled" style="color: var(--yellow);">0</div>
+            <div class="kpi-label">Sin etiquetar</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value" id="kpi-reviews" style="color: var(--purple);">0</div>
+            <div class="kpi-label">Revisiones analista</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value" id="kpi-coverage" style="color: var(--cyan);">—</div>
+            <div class="kpi-label">Cobertura</div>
+        </div>
+    </div>
+
+    <!-- Pipeline diagram -->
+    <div class="card" style="margin-bottom: 16px;">
+        <div class="card-header">
+            <div class="card-title">🔄 Pipeline de auto-etiquetado</div>
+        </div>
+        <div class="pipeline">
+            <div class="pipeline-step active">Zeek Events</div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step active">Detección (IF + AE + HMM)</div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step active">Label Sources</div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step active">Weak Supervisor</div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step active">Consensus Labels</div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step active">Active Learning</div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step">Analyst Feedback</div>
+            <div class="pipeline-arrow">↻</div>
+            <div class="pipeline-step">Re-tune</div>
+        </div>
+    </div>
+
+    <!-- Kafka panel -->
+    <div class="kafka-panel" id="kafka-panel">
+        <div class="kafka-panel-header" onclick="toggleKafkaPanel()">
+            <div class="kafka-panel-title">
+                <span>🔗</span>
+                Kafka Bus — Integración con Pipeline
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div class="kafka-conn-row" style="margin: 0;">
+                    <div class="kafka-conn-dot" id="kafka-conn-dot-header"></div>
+                    <span class="kafka-conn-text disconnected" id="kafka-conn-text-header" style="font-size: 12px;">Verificando...</span>
+                </div>
+                <span class="kafka-toggle" id="kafka-toggle">▼</span>
+            </div>
+        </div>
+        <div class="kafka-panel-body" id="kafka-panel-body">
+            <div class="kafka-status-box">
+                <div class="kafka-conn-row">
+                    <div class="kafka-conn-dot" id="kafka-conn-dot"></div>
+                    <span class="kafka-conn-text disconnected" id="kafka-conn-text">Kafka no disponible - ejecutando en modo memoria</span>
+                </div>
+                <div class="kafka-meta-row">
+                    <span>Broker</span>
+                    <span class="kafka-meta-value" id="kafka-broker">172.26.10.98:9092</span>
+                </div>
+                <div class="kafka-meta-row">
+                    <span>Eventos enviados</span>
+                    <span class="kafka-events-count" id="kafka-events-sent">0</span>
+                </div>
+                <div class="kafka-meta-row">
+                    <span>Topics activos</span>
+                    <span class="kafka-meta-value" id="kafka-topics-count">0 / 8</span>
+                </div>
+                <a href="http://172.26.10.98:8089" target="_blank" class="kafka-ui-link" id="kafka-ui-link" style="display: none;">
+                    🖥️ Abrir Kafka-UI
+                </a>
+            </div>
+            <div class="kafka-topics-list" id="kafka-topics-list">
+                <!-- Topics will be rendered here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Main grid -->
+    <div class="grid">
+        <!-- Events -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">📡 Eventos en tiempo real</div>
+                <span style="font-size: 11px; color: var(--text-dim);">Top 15 por score</span>
+            </div>
+            <div class="card-body" id="events-body">
+                <div class="empty">Esperando eventos...</div>
+            </div>
+        </div>
+
+        <!-- Auto-labeling -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">🏷️ Auto-etiquetado (Weak Supervision)</div>
+                <span style="font-size: 11px; color: var(--text-dim);">Consensus labels</span>
+            </div>
+            <div class="card-body" id="labels-body">
+                <div class="empty">Esperando etiquetas...</div>
+            </div>
+        </div>
+
+        <!-- Active Learning -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">🔍 Active Learning</div>
+                <span style="font-size: 11px; color: var(--text-dim);">Revisión del analista</span>
+            </div>
+            <div class="card-body" id="al-body">
+                <div class="empty">Esperando candidatos...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom row -->
+    <div class="grid-2">
+        <!-- Source stats -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">📊 Fuentes de etiquetas</div>
+            </div>
+            <div class="card-body" id="sources-body">
+                <div class="empty">Esperando datos...</div>
+            </div>
+        </div>
+
+        <!-- Model status -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">🧠 Modelos de detección</div>
+            </div>
+            <div class="card-body" id="models-body">
+                <div class="empty">Cargando...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="conn-status">
+    <div class="conn-dot" id="conn-dot"></div>
+    <span id="conn-text">Conectado</span>
+</div>
+
+<script>
+// =========================================================================
+// WebSocket connection
+// =========================================================================
+let ws = null;
+let isConnected = false;
+
+function connect() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+    ws.onopen = () => {
+        isConnected = true;
+        document.getElementById('conn-dot').classList.remove('disconnected');
+        document.getElementById('conn-text').textContent = 'Conectado';
+    };
+
+    ws.onclose = () => {
+        isConnected = false;
+        document.getElementById('conn-dot').classList.add('disconnected');
+        document.getElementById('conn-text').textContent = 'Reconectando...';
+        setTimeout(connect, 3000);
+    };
+
+    ws.onerror = () => { ws.close(); };
+
+    ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'init' || msg.type === 'tick') {
+            updateUI(msg);
+        }
+    };
+}
+
+// =========================================================================
+// UI update
+// =========================================================================
+function updateUI(msg) {
+    const stats = msg.stats || {};
+    const sourceStats = msg.source_stats || {};
+
+    // KPIs
+    document.getElementById('kpi-events').textContent = stats.total_events || 0;
+    document.getElementById('kpi-anomalies').textContent = stats.total_anomalies || 0;
+    document.getElementById('kpi-labeled').textContent = stats.total_labeled || 0;
+    document.getElementById('kpi-unlabeled').textContent = stats.total_unlabeled || 0;
+    document.getElementById('kpi-reviews').textContent = stats.analyst_reviews || 0;
+    document.getElementById('tick-count').textContent = stats.tick || 0;
+
+    // Coverage
+    const total = stats.total_events || 0;
+    const labeled = stats.total_labeled || 0;
+    const coverage = total > 0 ? Math.round((labeled / total) * 100) + '%' : '—';
+    document.getElementById('kpi-coverage').textContent = coverage;
+
+    // Model status
+    const models = stats.models || {};
+    const modelNames = {
+        isolation_forest: 'Isolation Forest',
+        autoencoder: 'Autoencoder',
+        hmm: 'HMM'
+    };
+    const trainedCount = Object.values(models).filter(Boolean).length;
+    document.getElementById('model-status').textContent =
+        trainedCount === 3 ? '3 modelos activos' : `${trainedCount}/3 modelos activos`;
+
+    // Events
+    renderEvents(msg.events || []);
+
+    // Labels
+    renderLabels(msg.labels || []);
+
+    // Active learning
+    renderActiveLearning(msg.active_learning || []);
+
+    // Source stats
+    renderSourceStats(sourceStats);
+
+    // Models
+    renderModels(models, stats.thresholds || {});
+
+    // Kafka panel (from WebSocket tick data)
+    if (stats.kafka) {
+        updateKafkaPanel(stats.kafka);
+    }
+}
+
+function scoreColor(score) {
+    if (score >= 0.7) return 'score-high';
+    if (score >= 0.4) return 'score-mid';
+    return 'score-low';
+}
+
+function scoreBarColor(score) {
+    if (score >= 0.7) return '#ef4444';
+    if (score >= 0.4) return '#f59e0b';
+    return '#10b981';
+}
+
+function renderEvents(events) {
+    const body = document.getElementById('events-body');
+    if (!events.length) {
+        body.innerHTML = '<div class="empty">Esperando eventos...</div>';
+        return;
+    }
+
+    let html = '';
+    for (const evt of events) {
+        const isAnom = evt.is_anomaly;
+        const cls = isAnom ? 'event-row anomaly' : 'event-row';
+        const gtBadge = evt.ground_truth === true
+            ? '<span class="badge badge-anomaly">ANOM</span>'
+            : evt.ground_truth === false
+            ? '<span class="badge badge-normal">OK</span>'
+            : '<span class="badge badge-unlabeled">?</span>';
+
+        const labelBadge = evt.consensus_label
+            ? `<span class="badge badge-labeled">L:${evt.consensus_label.label ? 'T' : 'F'} (${evt.consensus_label.confidence})</span>`
+            : '';
+
+        const ifScore = evt.scores['isolation_forest'] || 0;
+        const aeScore = evt.scores['autoencoder'] || 0;
+        const hmmScore = evt.scores['hmm'] || 0;
+
+        html += `<div class="${cls}">
+            <div class="event-time">${formatTime(evt.timestamp)}</div>
+            <div class="event-ip">${evt.src_ip}</div>
+            <div class="score-text ${scoreColor(ifScore)}">${ifScore.toFixed(3)}</div>
+            <div class="score-text ${scoreColor(aeScore)}">${aeScore.toFixed(3)}</div>
+            <div class="score-text ${scoreColor(hmmScore)}">${hmmScore.toFixed(3)}</div>
+            <div class="score-text ${scoreColor(evt.avg_score)}"><b>${evt.avg_score.toFixed(3)}</b></div>
+            <div>${gtBadge}${labelBadge}</div>
+        </div>`;
+    }
+
+    // Add header row
+    html = `<div class="event-row" style="font-weight: 600; color: var(--text-dim); font-size: 10px; text-transform: uppercase; cursor: default; border-bottom: 1px solid var(--border);">
+        <div>Time</div>
+        <div>Src IP</div>
+        <div>IF</div>
+        <div>AE</div>
+        <div>HMM</div>
+        <div>Avg</div>
+        <div>GT/Label</div>
+    </div>` + html;
+
+    body.innerHTML = html;
+}
+
+function renderLabels(labels) {
+    const body = document.getElementById('labels-body');
+    if (!labels.length) {
+        body.innerHTML = '<div class="empty">Esperando etiquetas...</div>';
+        return;
+    }
+
+    let html = '';
+    for (const lbl of labels) {
+        const labelColor = lbl.label ? 'var(--red)' : 'var(--green)';
+        const labelText = lbl.label ? 'ANOMALÍA' : 'NORMAL';
+        const sources = (lbl.sources || []).join(', ');
+        const mitre = lbl.mitre ? ` · <span style="color: var(--purple);">${lbl.mitre}</span>` : '';
+
+        html += `<div class="label-item">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span style="color: ${labelColor}; font-weight: 600;">${labelText}</span>
+                    <span style="color: var(--text-dim); margin-left: 8px;">conf: ${lbl.confidence}</span>
+                    ${mitre}
+                </div>
+                <div style="font-size: 11px; color: var(--text-dim);">${formatTime(lbl.timestamp)}</div>
+            </div>
+            <div style="margin-top: 4px; font-size: 11px; color: var(--text-dim);">
+                IP: ${lbl.src_ip} · Fuentes: ${sources}
+            </div>
+            <div class="label-votes">
+                <span class="vote-tag vote-pos">+${lbl.votes_pos}</span>
+                <span class="vote-tag vote-neg">-${lbl.votes_neg}</span>
+            </div>
+        </div>`;
+    }
+
+    body.innerHTML = html;
+}
+
+function renderActiveLearning(items) {
+    const body = document.getElementById('al-body');
+    if (!items.length) {
+        body.innerHTML = '<div class="empty">Esperando candidatos...</div>';
+        return;
+    }
+
+    let html = '';
+    for (const item of items) {
+        const scores = Object.entries(item.model_scores || {})
+            .map(([k, v]) => `<span class="al-score-pill ${scoreColor(v)}">${k.split('_')[0].toUpperCase()}: ${v.toFixed(3)}</span>`)
+            .join('');
+
+        const suggested = item.suggested ? 'Confirmar anomalía' : 'Confirmar normal';
+        const suggestedColor = item.suggested ? 'var(--red)' : 'var(--green)';
+
+        html += `<div class="al-item">
+            <div class="al-item-header">
+                <div style="font-size: 12px;">
+                    <span style="color: var(--text-dim);">ID:</span> ${item.event_id}
+                    <span style="color: var(--text-dim); margin-left: 8px;">IP:</span> ${item.src_ip}
+                </div>
+                <div style="font-size: 11px; color: var(--text-dim);">
+                    Score: <b class="${scoreColor(item.unified_score)}">${item.unified_score.toFixed(3)}</b>
+                    · Umb: ${item.threshold}
+                    · Incert: ${item.uncertainty.toFixed(3)}
+                </div>
+            </div>
+            <div class="al-scores">${scores}</div>
+            <div style="font-size: 11px; color: var(--text-dim); margin-bottom: 8px;">
+                Razón: <span style="color: var(--accent);">${item.reason}</span>
+                · Sugerencia: <span style="color: ${suggestedColor};">${suggested}</span>
+            </div>
+            <div class="al-buttons">
+                <button class="btn btn-confirm" onclick="sendFeedback('${item.event_id}', true)">✓ Confirmar anomalía</button>
+                <button class="btn btn-reject" onclick="sendFeedback('${item.event_id}', false)">✗ Falso positivo</button>
+            </div>
+        </div>`;
+    }
+
+    body.innerHTML = html;
+}
+
+function renderSourceStats(stats) {
+    const body = document.getElementById('sources-body');
+    const sourceColors = {
+        suricata: '#ef4444',
+        wazuh: '#f97316',
+        misp: '#8b5cf6',
+        brain: '#3b82f6',
+        analyst: '#10b981',
+    };
+    const sourceNames = {
+        suricata: 'Suricata (IDS)',
+        wazuh: 'Wazuh (HIDS)',
+        misp: 'MISP (Threat Intel)',
+        brain: 'Brain (IA)',
+        analyst: 'Analyst (Humano)',
+    };
+
+    let html = '';
+    const sources = ['suricata', 'wazuh', 'misp', 'brain', 'analyst'];
+    for (const name of sources) {
+        const s = stats[name];
+        const color = sourceColors[name];
+        const displayName = sourceNames[name];
+        if (s) {
+            html += `<div class="source-row">
+                <div class="source-name">
+                    <div class="source-icon" style="background: ${color};"></div>
+                    ${displayName}
+                </div>
+                <div class="source-stats-mini">
+                    <span>Total: <b>${s.count}</b></span>
+                    <span style="color: var(--red);">+${s.positive}</span>
+                    <span style="color: var(--green);">-${s.negative}</span>
+                    <span>Conf: ${s.avg_confidence}</span>
+                </div>
+            </div>`;
+        } else {
+            html += `<div class="source-row">
+                <div class="source-name">
+                    <div class="source-icon" style="background: ${color}; opacity: 0.3;"></div>
+                    ${displayName}
+                </div>
+                <div class="source-stats-mini" style="opacity: 0.4;">
+                    <span>Sin datos</span>
+                </div>
+            </div>`;
+        }
+    }
+
+    body.innerHTML = html;
+}
+
+function renderModels(models, thresholds) {
+    const body = document.getElementById('models-body');
+    const modelInfo = [
+        { key: 'isolation_forest', name: 'Isolation Forest', desc: 'Detección de anomalías no supervisada' },
+        { key: 'autoencoder', name: 'Autoencoder', desc: 'Reconstrucción de patrones normales' },
+        { key: 'hmm', name: 'HMM', desc: 'Modelado de secuencias temporales' },
+    ];
+
+    let html = '';
+    for (const m of modelInfo) {
+        const active = models[m.key];
+        const threshold = thresholds[m.key] || 0.7;
+        html += `<div class="model-status">
+            <div class="model-dot ${active ? 'active' : 'inactive'}"></div>
+            <div>
+                <div style="font-weight: 600; font-size: 13px;">${m.name}</div>
+                <div style="font-size: 11px; color: var(--text-dim);">${m.desc}</div>
+            </div>
+            <div style="margin-left: auto; font-size: 11px; color: var(--text-dim);">
+                ${active ? `Umbral: ${threshold}` : 'No entrenado'}
+            </div>
+        </div>`;
+    }
+
+    body.innerHTML = html;
+}
+
+// =========================================================================
+// Kafka panel
+// =========================================================================
+const KAFKA_TOPICS = [
+    'zeek-conn', 'zeek-dns', 'zeek-http', 'zeek-ssl',
+    'suricata-alerts', 'wazuh-events', 'ml-scores', 'brain-incidents'
+];
+let kafkaPanelCollapsed = false;
+
+function toggleKafkaPanel() {
+    kafkaPanelCollapsed = !kafkaPanelCollapsed;
+    const body = document.getElementById('kafka-panel-body');
+    const toggle = document.getElementById('kafka-toggle');
+    if (kafkaPanelCollapsed) {
+        body.classList.add('collapsed');
+        toggle.classList.add('collapsed');
+    } else {
+        body.classList.remove('collapsed');
+        toggle.classList.remove('collapsed');
+    }
+}
+
+function updateKafkaPanel(kafkaStatus) {
+    const connected = kafkaStatus && kafkaStatus.connected;
+    const eventsSent = kafkaStatus ? (kafkaStatus.events_sent || 0) : 0;
+    const topics = kafkaStatus ? (kafkaStatus.topics || {}) : {};
+    const broker = kafkaStatus ? (kafkaStatus.broker || '172.26.10.98:9092') : '172.26.10.98:9092';
+
+    // Connection indicators (both header and body)
+    const dotHeader = document.getElementById('kafka-conn-dot-header');
+    const textHeader = document.getElementById('kafka-conn-text-header');
+    const dot = document.getElementById('kafka-conn-dot');
+    const text = document.getElementById('kafka-conn-text');
+
+    if (connected) {
+        dotHeader.classList.add('connected');
+        textHeader.classList.remove('disconnected');
+        textHeader.classList.add('connected');
+        textHeader.textContent = 'Kafka conectado';
+
+        dot.classList.add('connected');
+        text.classList.remove('disconnected');
+        text.classList.add('connected');
+        text.textContent = 'Kafka conectado — eventos replicados al pipeline';
+    } else {
+        dotHeader.classList.remove('connected');
+        textHeader.classList.remove('connected');
+        textHeader.classList.add('disconnected');
+        textHeader.textContent = 'Modo memoria';
+
+        dot.classList.remove('connected');
+        text.classList.remove('connected');
+        text.classList.add('disconnected');
+        text.textContent = 'Kafka no disponible - ejecutando en modo memoria';
+    }
+
+    // Meta
+    document.getElementById('kafka-broker').textContent = broker;
+    document.getElementById('kafka-events-sent').textContent = eventsSent.toLocaleString();
+
+    // Topics
+    const topicsList = document.getElementById('kafka-topics-list');
+    let activeCount = 0;
+    let html = '';
+    for (const topicName of KAFKA_TOPICS) {
+        const exists = topics[topicName] && topics[topicName].exists;
+        if (exists) activeCount++;
+        const dotClass = exists ? 'active' : 'inactive';
+        const labelClass = exists ? 'kafka-topic-label active' : 'kafka-topic-label';
+        const label = exists ? 'activo' : '—';
+        html += `<div class="kafka-topic-row">
+            <span class="kafka-topic-name">${topicName}</span>
+            <span class="kafka-topic-badge">
+                <div class="kafka-topic-dot ${dotClass}"></div>
+                <span class="${labelClass}">${label}</span>
+            </span>
+        </div>`;
+    }
+    topicsList.innerHTML = html;
+    document.getElementById('kafka-topics-count').textContent = `${activeCount} / 8`;
+
+    // Kafka-UI link
+    const uiLink = document.getElementById('kafka-ui-link');
+    uiLink.style.display = connected ? 'inline-flex' : 'none';
+}
+
+// Poll Kafka status every 5s as backup (WebSocket already sends it in tick)
+async function pollKafkaStatus() {
+    try {
+        const resp = await fetch('/api/kafka/status');
+        const data = await resp.json();
+        updateKafkaPanel(data);
+    } catch (e) {
+        // Silent fail
+    }
+}
+
+// =========================================================================
+// Helper functions
+// =========================================================================
+function formatTime(iso) {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('es-ES', { hour12: false });
+}
+
+async function sendFeedback(eventId, label) {
+    try {
+        await fetch('/api/analyst-feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ event_id: eventId, label: label }),
+        });
+        // The next tick will update the UI
+    } catch (e) {
+        console.error('Feedback error:', e);
+    }
+}
+
+// =========================================================================
+// Init
+// =========================================================================
+connect();
+
+// Poll Kafka status every 5s as backup to WebSocket
+setInterval(pollKafkaStatus, 5000);
+// Initial poll after 2s (give server time to try connecting)
+setTimeout(pollKafkaStatus, 2000);
+</script>
+
+</body>
+</html>

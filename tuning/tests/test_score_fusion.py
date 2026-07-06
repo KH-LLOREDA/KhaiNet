@@ -160,3 +160,29 @@ class TestExtremeScores:
         fusion = ScoreFusion(method="weighted_average")
         result = fusion.fuse_scores(scores, labels)
         assert result.unified_score == 1.0
+
+
+class TestValidation:
+    def test_mismatched_lengths_raises(self):
+        """fuse_scores should raise ValueError on mismatched lengths."""
+        scores = {
+            "isolation_forest": [0.1, 0.2, 0.3],
+            "autoencoder": [0.1, 0.2],  # Wrong length
+            "hmm": [0.1, 0.2, 0.3],
+        }
+        labels = [False, False, True]
+        fusion = ScoreFusion(method="weighted_average")
+        with pytest.raises(ValueError, match="elements but labels has"):
+            fusion.fuse_scores(scores, labels)
+
+    def test_mismatched_labels_length_raises(self):
+        """Should raise when labels length differs from all score lists."""
+        scores = {
+            "isolation_forest": [0.1, 0.2, 0.3],
+            "autoencoder": [0.1, 0.2, 0.3],
+            "hmm": [0.1, 0.2, 0.3],
+        }
+        labels = [False, True]  # Wrong length
+        fusion = ScoreFusion(method="weighted_average")
+        with pytest.raises(ValueError, match="elements but labels has"):
+            fusion.fuse_scores(scores, labels)

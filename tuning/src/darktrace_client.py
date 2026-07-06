@@ -156,12 +156,17 @@ class DarktraceClient:
         return alerts
 
     def _mock_devices(self) -> list[dict[str, Any]]:
-        """Generate mock device inventory."""
+        """Generate mock device inventory with pseudonymized IPs (GDPR)."""
+        import hashlib
+
+        def _pseud_ip(i: int) -> str:
+            return hashlib.sha256(f"khainet-salt:10.0.0.{i}".encode()).hexdigest()
+
         return [
             {
                 "did": i,
                 "hostname": f"host-{i}",
-                "ip": f"10.0.0.{i}",
+                "ip": _pseud_ip(i),
                 "mac": f"00:1a:2b:3c:4d:{i:02x}",
                 "type": "server" if i % 3 == 0 else "workstation",
                 "firstSeen": "2026-06-01T00:00:00Z",

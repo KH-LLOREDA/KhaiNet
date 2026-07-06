@@ -231,7 +231,19 @@ class ScoreFusion:
 
         Returns:
             FusionResult with weights, unified score, and contributions.
+
+        Raises:
+            ValueError: If scores and labels have mismatched lengths.
         """
+        # Validate that all score lists have the same length as labels
+        n_labels = len(labels)
+        for model_name, model_scores in scores.items():
+            if len(model_scores) != n_labels:
+                raise ValueError(
+                    f"Score list for model '{model_name}' has {len(model_scores)} "
+                    f"elements but labels has {n_labels}"
+                )
+
         m = method or self.method
         if m == "stacking":
             result = self._stacking(scores, labels)

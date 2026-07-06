@@ -1,155 +1,399 @@
 {
-  "api_version": "v1",
-  "base_url": "https://darktrace.example.com",
-  "auth": {
-    "type": "bearer_token",
-    "header": "Authorization",
-    "format": "Bearer {token}",
-    "token_env_var": "DARKTRACE_API_TOKEN"
+  "_meta": {
+    "description": "Especificación REAL de la API de Darktrace basada en investigación de SDKs de comunidad y documentación del Customer Portal. Actualizada tras verificación del issue 'Verificar acceso a API de Darktrace'.",
+    "last_updated": "2026-07-03",
+    "sources": [
+      "https://github.com/LegendEvent/darktrace-sdk",
+      "https://github.com/rfizzle/darktrace",
+      "https://github.com/hutchris/darktrace",
+      "Customer Portal: https://customerportal.darktrace.com"
+    ],
+    "warning": "La documentación oficial de Darktrace NO es pública. Esta spec se basa en SDKs de comunidad. Verificar contra la instancia real cuando se tengan credenciales."
   },
+
+  "api_version": "no_versioned",
+  "base_url": "https://darktrace.example.com",
+  "note": "La API NO usa prefijo /api/v1/. Los endpoints son directamente /modelbreaches, /devices, etc.",
+
+  "auth": {
+    "type": "hmac_sha1",
+    "description": "Token público/privado con firma HMAC-SHA1 por petición. NO es Bearer token.",
+    "token_generation": {
+      "location": "System Config → API Keys",
+      "requires_admin": true,
+      "produces": ["public_token", "private_token"]
+    },
+    "headers": {
+      "DTAPI-Token": "Token público",
+      "DTAPI-Date": "Timestamp UTC ISO format: YYYY-MM-DDTHH:MM:SS",
+      "DTAPI-Signature": "Firma HMAC-SHA1 hexadecimal",
+      "Content-Type": "application/json"
+    },
+    "signature_algorithm": {
+      "mac_string": "{request_path}?{sorted_params}\\n{public_token}\\n{utc_date}",
+      "hash": "HMAC-SHA1",
+      "key": "private_token",
+      "output": "hexadecimal string",
+      "critical_note": "Los parámetros de query DEBEN ir ordenados alfabéticamente tanto en la firma como en la petición real, o la API devuelve 401."
+    },
+    "token_env_vars": {
+      "public": "DARKTRACE_PUBLIC_TOKEN",
+      "private": "DARKTRACE_PRIVATE_TOKEN"
+    }
+  },
+
   "endpoints": {
-    "alerts": {
+    "modelbreaches": {
       "method": "GET",
-      "path": "/api/v1/alerts",
-      "description": "List alerts with optional filters",
+      "path": "/modelbreaches",
+      "description": "Model breach alerts — fuente principal de etiquetas supervisadas para KhaiNet",
       "params": {
-        "from": {
-          "type": "string",
-          "format": "iso8601",
-          "description": "Start timestamp (inclusive)"
+        "starttime": {
+          "type": "integer",
+          "unit": "unix_milliseconds",
+          "description": "Start timestamp (inclusive). Must pair with endtime."
         },
-        "to": {
-          "type": "string",
-          "format": "iso8601",
-          "description": "End timestamp (exclusive)"
+        "endtime": {
+          "type": "integer",
+          "unit": "unix_milliseconds",
+          "description": "End timestamp (exclusive). Must pair with starttime."
         },
-        "device": {
+        "from_time": {
+          "type": "string",
+          "format": "YYYY-MM-DD HH:MM:SS",
+          "description": "Alternative human-readable start time. Must pair with to_time."
+        },
+        "to_time": {
+          "type": "string",
+          "format": "YYYY-MM-DD HH:MM:SS",
+          "description": "Alternative human-readable end time. Must pair with from_time."
+        },
+        "minscore": {
+          "type": "float",
+          "range": "0-100",
+          "description": "Minimum breach score"
+        },
+        "maxscore": {
+          "type": "float",
+          "range": "0-100",
+          "description": "Maximum breach score"
+        },
+        "did": {
           "type": "integer",
           "description": "Filter by device DID"
         },
-        "model": {
-          "type": "string",
-          "description": "Filter by model name / UUID"
-        },
-        "cursor": {
-          "type": "string",
-          "description": "Pagination cursor from previous response"
-        },
-        "limit": {
+        "pbid": {
           "type": "integer",
-          "default": 100,
-          "description": "Max results per page"
+          "description": "Get specific breach by ID"
+        },
+        "includeacknowledged": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include acknowledged breaches"
+        },
+        "includesuppressed": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include suppressed breaches"
+        },
+        "minimal": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reduce payload size"
+        },
+        "expandenums": {
+          "type": "boolean",
+          "default": false,
+          "description": "Convert numeric enums to readable strings"
+        },
+        "count": {
+          "type": "integer",
+          "description": "Limit number of results (pagination)"
+        },
+        "responsedata": {
+          "type": "string",
+          "description": "Restrict fields returned to reduce payload"
+        },
+        "group": {
+          "type": "string",
+          "description": "Filter by group"
+        },
+        "saasonly": {
+          "type": "boolean",
+          "description": "SaaS only results (requires Darktrace SaaS module)"
         }
       },
       "response": {
-        "alerts": [
-          {
-            "pbid": "string",
-            "model": "string",
-            "modelUuid": "string",
-            "device": {
-              "did": 123,
-              "hostname": "string",
-              "ip": "string"
-            },
-            "srcDevice": {
-              "did": 456,
-              "hostname": "string",
-              "ip": "string"
-            },
-            "protocol": "tcp|udp|icmp",
-            "srcPort": 12345,
-            "dstPort": 443,
-            "category": "string",
-            "priority": 1,
-            "severity": "low|medium|high|critical",
-            "description": "string",
-            "time": "iso8601"
-          }
-        ],
-        "next_cursor": "string|null"
+        "type": "array_of_objects",
+        "note": "No cursor pagination. Use count + offset manually.",
+        "fields": {
+          "pbid": "integer — unique breach ID",
+          "score": "float (0-100) — breach score",
+          "time": "integer — Unix timestamp in milliseconds",
+          "acknowledged": "boolean",
+          "suppressed": "boolean",
+          "model": {
+            "name": "string — model name",
+            "uuid": "string — model UUID",
+            "pid": "integer — model PID"
+          },
+          "device": {
+            "did": "integer — device ID",
+            "hostname": "string",
+            "ip": "string — IP address (pseudonymize for GDPR)"
+          },
+          "connectionDetails": "object — connection details",
+          "url": "string — URL to breach in UI"
+        }
       }
     },
-    "modelbreaches": {
+
+    "aianalyst_incidentevents": {
       "method": "GET",
-      "path": "/api/v1/modelbreaches",
-      "description": "List model breaches",
+      "path": "/aianalyst/incidentevents",
+      "description": "AI Analyst incident events — enriquecimiento de etiquetas (requires AI Analyst module)",
       "params": {
-        "from": "iso8601",
-        "to": "iso8601",
-        "cursor": "string",
-        "limit": "integer"
+        "starttime": "integer (unix ms)",
+        "endtime": "integer (unix ms)",
+        "minscore": "float (0-100)",
+        "maxscore": "float (0-100)",
+        "groupcritical": "boolean",
+        "groupsuspicious": "boolean",
+        "groupcompliance": "boolean",
+        "did": "integer",
+        "saasonly": "boolean",
+        "includeacknowledged": "boolean",
+        "locale": "string"
       },
-      "response": {
-        "modelbreaches": [
-          {
-            "pbid": "string",
-            "model": "string",
-            "modelUuid": "string",
-            "device": {"did": 123, "hostname": "string"},
-            "time": "iso8601",
-            "score": 0.95,
-            "category": "string",
-            "description": "string"
-          }
-        ],
-        "next_cursor": "string|null"
+      "response_fields": {
+        "id": "string (UUID)",
+        "title": "string",
+        "category": "string (critical|suspicious|compliance)",
+        "aiaScore": "integer (0-100)",
+        "groupScore": "string (float as string)",
+        "createdAt": "integer (unix ms)",
+        "summary": "string",
+        "mitreTactics": "array of strings",
+        "attackPhases": "array of integers",
+        "acknowledged": "boolean",
+        "pinned": "boolean",
+        "breachDevices": "array of {ip, subnet, did, sid}"
       }
     },
+
+    "aianalyst_groups": {
+      "method": "GET",
+      "path": "/aianalyst/groups",
+      "description": "AI Analyst incident groups (requires AI Analyst module)",
+      "params": {
+        "starttime": "integer (unix ms)",
+        "endtime": "integer (unix ms)",
+        "groupid": "string"
+      }
+    },
+
+    "antigena": {
+      "method": "GET",
+      "path": "/antigena",
+      "description": "RESPOND/Antigena actions (requires Darktrace RESPOND module)",
+      "params": {
+        "starttime": "integer (unix ms)",
+        "endtime": "integer (unix ms)",
+        "did": "integer",
+        "includecleared": "boolean",
+        "includehistory": "boolean",
+        "needconfirming": "boolean"
+      }
+    },
+
+    "advancedsearch": {
+      "method": "GET|POST",
+      "path": "/advancedsearch",
+      "description": "Advanced search of network logs/events. POST supported in Darktrace 6.1+.",
+      "params": {
+        "search": "string — query expression",
+        "fields": "array — fields to return",
+        "offset": "integer — pagination offset",
+        "timeframe": "string — time window in seconds",
+        "count": "integer — limit results"
+      }
+    },
+
+    "details": {
+      "method": "GET",
+      "path": "/details",
+      "description": "Event/connection details for a specific breach",
+      "params": {
+        "pbid": "integer — breach ID",
+        "includetotalbytes": "boolean"
+      }
+    },
+
     "devices": {
       "method": "GET",
-      "path": "/api/v1/devices",
+      "path": "/devices",
       "description": "Device inventory",
       "params": {
-        "cursor": "string",
-        "limit": "integer"
+        "count": "integer — limit results",
+        "responsedata": "string — restrict fields"
       },
-      "response": {
-        "devices": [
-          {
-            "did": 123,
-            "hostname": "string",
-            "ip": "string",
-            "mac": "string",
-            "type": "server|workstation|iot",
-            "firstSeen": "iso8601",
-            "lastSeen": "iso8601"
-          }
-        ],
-        "next_cursor": "string|null"
+      "response_fields": {
+        "did": "integer",
+        "hostname": "string",
+        "ip": "string",
+        "mac": "string",
+        "type": "string",
+        "firstSeen": "string (ISO8601)",
+        "lastSeen": "string (ISO8601)"
       }
     },
-    "analystics": {
+
+    "status": {
       "method": "GET",
-      "path": "/api/v1/analystics",
-      "description": "Analytics and metrics summary",
+      "path": "/status",
+      "description": "System status, version, license info, retention. USE THIS FIRST to verify connectivity.",
+      "response_fields": {
+        "version": "string",
+        "license_info": "object — license type, features, limits",
+        "storage_status": {
+          "data_retention_days": "integer — data retention in days"
+        }
+      }
+    },
+
+    "models": {
+      "method": "GET",
+      "path": "/models",
+      "description": "List of detection models"
+    },
+
+    "acknowledgeevent": {
+      "method": "POST",
+      "path": "/acknowledgeevent",
+      "description": "Acknowledge a breach event",
       "params": {
-        "from": "iso8601",
-        "to": "iso8601"
-      },
-      "response": {
-        "total_alerts": 1234,
-        "total_breaches": 567,
-        "top_models": [{"model": "string", "count": 100}],
-        "severity_breakdown": {"critical": 10, "high": 50, "medium": 200, "low": 974}
+        "pbid": "integer"
+      }
+    },
+
+    "mbcomments": {
+      "method": "GET",
+      "path": "/mbcomments",
+      "description": "Comments on model breaches",
+      "params": {
+        "pbid": "integer"
       }
     }
   },
+
   "errors": {
-    "401": "DarktraceAuthError — invalid or expired token",
-    "429": "DarktraceRateLimitError — rate limit exceeded, retry with backoff",
-    "500": "DarktraceAPIError — server error",
-    "502": "DarktraceAPIError — bad gateway",
-    "503": "DarktraceAPIError — service unavailable"
+    "401": {
+      "error": "DarktraceAuthError",
+      "cause": "Invalid token, incorrect signature, or params not sorted alphabetically",
+      "action": "Verify tokens and signature algorithm"
+    },
+    "403": {
+      "error": "DarktraceAuthError",
+      "cause": "Token lacks permissions for this endpoint",
+      "action": "Check if required module is licensed"
+    },
+    "429": {
+      "error": "DarktraceRateLimitError",
+      "cause": "Rate limit exceeded",
+      "action": "Retry with exponential backoff"
+    },
+    "500": {
+      "error": "DarktraceAPIError",
+      "cause": "Server error (known bug: /devicesummary returns 500 with API tokens)",
+      "action": "Retry or avoid affected endpoint"
+    },
+    "502": {
+      "error": "DarktraceAPIError",
+      "cause": "Bad gateway",
+      "action": "Retry"
+    },
+    "503": {
+      "error": "DarktraceAPIError",
+      "cause": "Service unavailable",
+      "action": "Retry"
+    }
   },
+
   "pagination": {
-    "type": "cursor",
-    "cursor_field": "next_cursor",
-    "param_name": "cursor",
-    "end_condition": "next_cursor is null or empty"
+    "type": "manual_count_offset",
+    "description": "No cursor-based pagination. Use count parameter to limit results and offset (in /advancedsearch) for pagination.",
+    "note": "For /modelbreaches, use time windows (starttime/endtime) to paginate through large datasets chronologically."
   },
+
   "rate_limiting": {
-    "max_requests_per_second": 10,
-    "strategy": "token_bucket"
+    "documented": false,
+    "http_status_on_exceed": 429,
+    "strategy": "exponential_backoff",
+    "recommended_config": {
+      "max_requests_per_second": 5,
+      "retry_attempts": 3,
+      "backoff_base_seconds": 3,
+      "backoff_max_seconds": 60
+    },
+    "note": "Rate limits are per-instance and depend on system load. No official figures published."
+  },
+
+  "data_retention": {
+    "typical_range_days": "30-90",
+    "depends_on": "appliance storage capacity and traffic volume",
+    "query_endpoint": "/status → storage_status.data_retention_days",
+    "critical_implication": "Cannot query alerts from 12 months ago. Must export continuously from day 1 of shadow mode and store in own database."
+  },
+
+  "modules_required": {
+    "threat_visualizer": {
+      "endpoints": ["/modelbreaches", "/devices", "/status", "/models", "/details", "/advancedsearch"],
+      "description": "Base module — included in standard license"
+    },
+    "ai_analyst": {
+      "endpoints": ["/aianalyst/*"],
+      "description": "Additional module required for AI Analyst endpoints"
+    },
+    "respond_antigena": {
+      "endpoints": ["/antigena", "/antigena/summary"],
+      "description": "Additional module required for RESPOND/Antigena endpoints"
+    },
+    "email": {
+      "endpoints": ["/agemail/*"],
+      "description": "Additional module required for Darktrace EMAIL endpoints"
+    },
+    "saas_cloud": {
+      "endpoints": ["saasonly/saasfilter params"],
+      "description": "Additional module for SaaS/Cloud Security"
+    }
+  },
+
+  "known_issues": {
+    "devicesummary_500": {
+      "endpoint": "/devicesummary",
+      "issue": "Returns HTTP 500 when using API tokens. Only works with browser session/cookie.",
+      "confirmed_version": "6.3.18",
+      "workaround": "Use /devices or /deviceinfo instead"
+    }
+  },
+
+  "plan_b_no_api": {
+    "syslog_forwarding": {
+      "description": "Configure Darktrace to send alerts via syslog. No API license required.",
+      "config_location": "System Config → Integrations → Syslog",
+      "receiver": "Wazuh or rsyslog (already in KhaiNet stack)",
+      "viability": "high",
+      "limitation": "Syslog format may be less structured than API JSON"
+    },
+    "manual_export": {
+      "description": "Analyst exports breaches from Threat Visualizer UI in CSV/JSON",
+      "viability": "medium",
+      "limitation": "Labor intensive, not suitable for continuous 12-month shadow mode"
+    },
+    "manual_labeling": {
+      "description": "Analysts manually label Zeek events using Label Studio",
+      "viability": "low",
+      "limitation": "Very labor intensive, use only as complement"
+    }
   }
 }
