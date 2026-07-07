@@ -2362,41 +2362,116 @@ function updateActiveLinksPanel() {
 // LOAD: INCIDENTS
 // =========================================================================
 async function loadIncidents() {
+    const container = document.getElementById('incidents-list');
+    let html = '';
+
+    // === Try to load real incidents from Kafka brain-incidents topic ===
+    try {
+        const resp = await fetch('/api/incidents');
+        const data = await resp.json();
+        if (data.incidents && data.incidents.length > 0) {
+            html += `<div class="info-box" style="margin-bottom:16px;border-left:3px solid var(--accent);background:rgba(0,212,255,0.05);">
+                <div style="padding:12px 16px;font-size:13px;">
+                    <strong>🔴 Live from Kafka</strong> — ${data.total} incidentes leídos del topic <code>brain-incidents</code>.
+                    Generados por <strong>khainet-brain-consumer</strong> (172.25.0.14).
+                </div>
+            </div>`;
+            for (const inc of data.incidents) {
+                const severity = inc.severity_label || inc.severity || 'unknown';
+                const sevClass = typeof severity === 'string' ? severity.toLowerCase() : 'low';
+                const title = inc.title || 'Untitled incident';
+                const desc = inc.description || '';
+                const reason = inc.correlation_reason || '';
+                const fpAssessment = inc.false_positive_assessment || '';
+                const alertCount = inc.metrics?.alert_count || (inc.alerts?.length || 0);
+                const confidence = inc.confidence != null ? (inc.confidence * 100).toFixed(0) + '%' : '—';
+                const createdAt = inc.created_at ? new Date(inc.created_at).toLocaleString('es-ES') : '';
+                const xaiAvailable = inc.xai_available ? '✅ XAI' : '⚠️ Fallback';
+                const entities = inc.entities || {};
+                const srcIPs = (entities.src_ips || []).join(', ');
+                const dstIPs = (entities.dst_ips || []).join(', ');
+
+                html += `<div class="incident-card">
+                    <div class="incident-card-header">
+                        <div class="incident-card-title">${title}</div>
+                        <div>
+                            <span class="badge badge-${sevClass}">${String(severity).toUpperCase()}</span>
+                            <span class="badge" style="background:rgba(255,255,255,0.1);">${alertCount} alerts</span>
+                            <span class="badge" style="background:rgba(255,255,255,0.1);">${confidence} conf</span>
+                        </div>
+                    </div>
+                    <div class="incident-card-desc">${desc}</div>
+                    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+                        <strong>Creado:</strong> ${createdAt} ·
+                        <strong>Correlación:</strong> ${reason} ·
+                        <strong>${xaiAvailable}</strong>
+                    </div>
+                    ${srcIPs ? `<div style="font-size:12px;color:var(--text-dim);margin-bottom:4px;"><strong>Src IPs:</strong> ${srcIPs}</div>` : ''}
+                    ${dstIPs ? `<div style="font-size:12px;color:var(--text-dim);margin-bottom:4px;"><strong>Dst IPs:</strong> ${dstIPs}</div>` : ''}
+                    ${fpAssessment ? `<div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;"><strong>FP Assessment:</strong> ${fpAssessment}</div>` : ''}
+                    ${inc.recommended_actions && inc.recommended_actions.length > 0 ? `
+                    <div style="margin-top:8px;">
+                        <strong style="font-size:11px;color:var(--text-dim);">Acciones recomendadas:</strong>
+                        ${inc.recommended_actions.map(a => `<span class="tag-chip">${a.action}: ${a.target}</span>`).join('')}
+                    </div>` : ''}
+                </div>`;
+            }
+        }
+    } catch (e) {
+        // Fall through to demo incidents
+    }
+
+    // === Load demo incidents from topology data ===
     if (!topologyData) {
         try {
             const resp = await fetch('/api/network/topology');
             topologyData = await resp.json();
-        } catch (e) { return; }
+        } catch (e) { 
+            if (!html) container.innerHTML = '<div class="empty">No se pudieron cargar incidentes.</div>';
+            else container.innerHTML = html;
+            return;
+        }
     }
-    const container = document.getElementById('incidents-list');
-    let html = '';
-    for (const inc of topologyData.incidents) {
-        const pathVis = inc.path.map((nodeId, i) => {
-            const dev = topologyData.devices.find(d => d.id === nodeId);
-            return `<span class="path-node">${dev ? dev.name : nodeId}</span>${i < inc.path.length - 1 ? '<span class="path-arrow">→</span>' : ''}`;
-        }).join('');
-        const mitreTags = inc.mitre.map(m => `<span class="mitre-tag">${m}</span>`).join('');
-        const detectedBy = inc.detected_by.map(d => `<span class="tag-chip">${d}</span>`).join('');
-        const patientZero = topologyData.devices.find(d => d.id === inc.patient_zero);
-        html += `<div class="incident-card ${inc.status === 'contained' ? 'contained' : ''}">
-            <div class="incident-card-header">
-                <div class="incident-card-title">${inc.id} — ${inc.name}</div>
-                <div><span class="badge badge-${inc.status === 'active' ? 'active' : 'contained'}">${inc.status.toUpperCase()}</span>
-                <span class="badge badge-${inc.severity}">${inc.severity.toUpperCase()}</span></div>
+    
+    if (topologyData.incidents && topologyData.incidents.length > 0) {
+        html += `<div class="info-box" style="margin-bottom:16px;">
+            <div style="padding:12px 16px;font-size:13px;">
+                <strong>Demo incidents</strong> — Datos sintéticos del motor de demostración.
             </div>
-            <div class="incident-card-desc">${inc.description}</div>
-            <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
-                <strong>Patient zero:</strong> ${patientZero ? patientZero.name : inc.patient_zero} (${patientZero ? patientZero.ip : '?'}) ·
-                <strong>Primera detección:</strong> ${new Date(inc.first_seen).toLocaleString('es-ES')}
-            </div>
-            <div class="incident-path-vis">${pathVis}</div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;">
-                <div><strong style="font-size:11px;color:var(--text-dim);">MITRE ATT&CK:</strong> ${mitreTags}</div>
-            </div>
-            <div><strong style="font-size:11px;color:var(--text-dim);">Detectado por:</strong> ${detectedBy}</div>
         </div>`;
+        for (const inc of topologyData.incidents) {
+            const pathVis = inc.path.map((nodeId, i) => {
+                const dev = topologyData.devices.find(d => d.id === nodeId);
+                return `<span class="path-node">${dev ? dev.name : nodeId}</span>${i < inc.path.length - 1 ? '<span class="path-arrow">→</span>' : ''}`;
+            }).join('');
+            const mitreTags = inc.mitre.map(m => `<span class="mitre-tag">${m}</span>`).join('');
+            const detectedBy = inc.detected_by.map(d => `<span class="tag-chip">${d}</span>`).join('');
+            const patientZero = topologyData.devices.find(d => d.id === inc.patient_zero);
+            html += `<div class="incident-card ${inc.status === 'contained' ? 'contained' : ''}">
+                <div class="incident-card-header">
+                    <div class="incident-card-title">${inc.id} — ${inc.name}</div>
+                    <div><span class="badge badge-${inc.status === 'active' ? 'active' : 'contained'}">${inc.status.toUpperCase()}</span>
+                    <span class="badge badge-${inc.severity}">${inc.severity.toUpperCase()}</span></div>
+                </div>
+                <div class="incident-card-desc">${inc.description}</div>
+                <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">
+                    <strong>Patient zero:</strong> ${patientZero ? patientZero.name : inc.patient_zero} (${patientZero ? patientZero.ip : '?'}) ·
+                    <strong>Primera detección:</strong> ${new Date(inc.first_seen).toLocaleString('es-ES')}
+                </div>
+                <div class="incident-path-vis">${pathVis}</div>
+                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;">
+                    <div><strong style="font-size:11px;color:var(--text-dim);">MITRE ATT&CK:</strong> ${mitreTags}</div>
+                </div>
+                <div><strong style="font-size:11px;color:var(--text-dim);">Detectado por:</strong> ${detectedBy}</div>
+            </div>`;
+        }
     }
-    container.innerHTML = html;
+
+    if (!html) {
+        container.innerHTML = '<div class="empty">No hay incidentes detectados todavía. El sistema está esperando eventos de los sensores.</div>';
+    } else {
+        container.innerHTML = html;
+    }
 }
 
 // =========================================================================

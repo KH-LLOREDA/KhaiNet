@@ -1,0 +1,51 @@
+# KhaiNet Pipeline — Production config for KhaiNet stack
+# Kafka broker inside khainet-network
+
+kafka:
+  broker: "172.25.0.2:9092"
+  client_id: "khainet-pipeline"
+
+topics:
+  zeek-conn:
+    partitions: 3
+    replication: 1
+  zeek-dns:
+    partitions: 3
+    replication: 1
+  zeek-http:
+    partitions: 3
+    replication: 1
+  zeek-ssl:
+    partitions: 3
+    replication: 1
+  suricata-alerts:
+    partitions: 3
+    replication: 1
+  wazuh-events:
+    partitions: 3
+    replication: 1
+  ml-scores:
+    partitions: 3
+    replication: 1
+  brain-incidents:
+    partitions: 3
+    replication: 1
+
+sensor:
+  rate: 10
+  anomaly_ratio: 0.05
+  anomaly_types:
+    - port_scan
+    - data_exfil
+    - c2_beacon
+    - dns_tunneling
+
+detection:
+  consumer_group: "detection-consumer"
+  batch_size: 20
+  auto_offset_reset: "latest"
+
+tuning:
+  consumer_group: "tuning-consumer"
+  temporal_window_seconds: 60
+  auto_offset_reset: "latest"

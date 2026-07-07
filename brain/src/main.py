@@ -87,7 +87,9 @@ def setup_logging(config: dict[str, Any]) -> None:
             else structlog.processors.JSONRenderer(),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(structlog, level, structlog.INFO)
+            getattr(structlog, level, 20)
+            if isinstance(getattr(structlog, level, 20), int)
+            else 20
         ),
         cache_logger_on_first_use=True,
     )

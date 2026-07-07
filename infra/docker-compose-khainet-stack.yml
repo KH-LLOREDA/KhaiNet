@@ -279,6 +279,48 @@ services:
       - suricata
       - wazuh
 
+  # ============================================================
+  # DETECTION CONSUMER — Kafka → modelos ML → ml-scores
+  # Consume zeek-conn/dns/http/ssl, pasa por DetectionOrchestrator
+  # (Isolation Forest + Autoencoder + HMM), produce ml-scores
+  # ============================================================
+  detection-consumer:
+    image: khainet-detection-consumer:latest
+    container_name: khainet-detection-consumer
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKER: 172.25.0.2:9092
+      PIPELINE_CONFIG: /app/pipeline/pipeline_config_prod.yaml
+      PYTHONPATH: /app/pipeline:/app/detection
+    networks:
+      khainet-network:
+        ipv4_address: 172.25.0.13
+    depends_on:
+      - kafka
+
+  # ============================================================
+  # BRAIN CONSUMER — Kafka → correlación → brain-incidents
+  # Consume ml-scores + suricata-alerts + wazuh-events,
+  # correlaciona, scoring, produce brain-incidents
+  # ============================================================
+  brain-consumer:
+    image: khainet-brain-consumer:latest
+    container_name: khainet-brain-consumer
+    restart: unless-stopped
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: 172.25.0.2:9092
+      REDIS_URL: redis://localhost:6379/0
+      OPENSEARCH_URL: http://172.25.0.5:9200
+      CLICKHOUSE_URL: http://172.25.0.6:8123
+      LOG_LEVEL: INFO
+      BRAIN_CONFIG_PATH: /app/brain/config/settings-prod.yaml
+    networks:
+      khainet-network:
+        ipv4_address: 172.25.0.14
+    depends_on:
+      - kafka
+      - detection-consumer
+
 # ============================================================
 # NETWORKS
 # ============================================================

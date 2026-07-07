@@ -1,0 +1,25 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install detection requirements (torch, scikit-learn, etc.)
+COPY detection/requirements.txt /tmp/detection-reqs.txt
+RUN pip install --no-cache-dir -r /tmp/detection-reqs.txt
+
+# Install pipeline requirements (kafka-python, pydantic, structlog, pyyaml)
+RUN pip install --no-cache-dir kafka-python>=2.0.2 pydantic>=2.6.0 pyyaml>=6.0 structlog>=24.1.0
+
+# Copy detection module
+COPY detection/ /app/detection/
+
+# Copy pipeline module
+COPY pipeline/ /app/pipeline/
+
+# Set working directory to pipeline/ so `from src.xxx import` works
+WORKDIR /app/pipeline
+
+# Environment variables
+ENV KAFKA_BROKER=172.25.0.2:9092
+ENV PYTHONPATH=/app/pipeline:/app/detection
+
+CMD ["python", "-m", "src.detection_consumer"]

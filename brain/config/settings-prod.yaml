@@ -1,0 +1,90 @@
+# KhaiNet Brain — Production config for KhaiNet stack
+# Kafka broker inside khainet-network
+kafka:
+  bootstrap_servers: "172.25.0.2:9092"
+  group_id: "brain-consumer"
+  input_topics:
+    - "ml-scores"
+    - "suricata-alerts"
+    - "wazuh-events"
+  output_topic: "brain-incidents"
+  dlq_topic: "brain-dlq"
+  auto_offset_reset: "latest"
+  enable_auto_commit: false
+  poll_timeout: 1.0
+
+# LLM disabled — fallback to scoring-only mode (no XAI)
+# When LLM is unavailable, Brain uses the fallback path: scoring + basic incident creation
+llm:
+  base_url: "http://localhost:8080"
+  model: "brain-kh7-v1"
+  timeout_seconds: 30
+  max_tokens: 2000
+  temperature: 0.1
+  retry:
+    max_attempts: 1
+    wait_min: 1
+    wait_max: 5
+  circuit_breaker:
+    failure_threshold: 1
+    recovery_timeout: 300
+    half_open_max_calls: 1
+  semantic_cache:
+    ttl_seconds: 300
+
+# Redis disabled — fallback to in-memory sessions
+redis:
+  url: "redis://localhost:6379/0"
+  session_timeout_seconds: 1800
+
+correlation:
+  window_seconds: 300
+  min_alerts_for_group: 2
+
+# Enrichment — OpenSearch and ClickHouse available in stack
+enrichment:
+  misp_url: ""
+  misp_api_key: ""
+  misp_verifycert: false
+  clickhouse_url: "http://172.25.0.6:8123"
+  opensearch_url: "http://172.25.0.5:9200"
+  geoip_db_path: ""
+  timeout_seconds: 10
+
+# Shuffle disabled — no SOAR platform yet
+shuffle:
+  url: ""
+  api_key: ""
+  webhook_path: "/api/v1/workflows/brain-incident/executions"
+  timeout_seconds: 15
+
+scoring:
+  weights:
+    model_severity: 0.40
+    asset_criticality: 0.25
+    threat_intel: 0.15
+    historical: 0.10
+    correlation: 0.10
+  default_asset_criticality: 2
+  bonus:
+    threat_intel_critical_threshold: 100
+    asset_criticality_threshold: 80
+    correlation_strong_threshold: 100
+    model_severity_high_threshold: 70
+
+metrics:
+  report_output_dir: "./reports"
+  comparison_window_days: 7
+
+logging:
+  level: "INFO"
+  format: "json"
+
+prometheus:
+  port: 9090
+
+gdpr:
+  pseudonymize_ips: true
+  audit_log_enabled: true
+
+workers: 3

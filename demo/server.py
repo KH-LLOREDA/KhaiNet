@@ -1543,15 +1543,41 @@ INFRA_SERVICES = [
     },
     # === IA (demo engine, no container) ===
     {
-        "name": "Brain",
-        "container": None,
+        "name": "Detection Consumer",
+        "container": "khainet-detection-consumer",
+        "component": "ML Detection",
+        "status": "online",
+        "host": "docker02",
+        "ip": "172.25.0.13",
+        "port": None,
+        "image": "khainet-detection-consumer:latest",
+        "desc": "Consumer que lee eventos Zeek de Kafka, los pasa por 3 modelos (Isolation Forest, Autoencoder, HMM) y produce ml-scores.",
+        "category": "ai",
+        "stack": "khainet",
+    },
+    {
+        "name": "Brain Consumer",
+        "container": "khainet-brain-consumer",
         "component": "AI Correlation",
+        "status": "online",
+        "host": "docker02",
+        "ip": "172.25.0.14",
+        "port": None,
+        "image": "khainet-brain-consumer:latest",
+        "desc": "Consumer que lee ml-scores + alertas de Suricata/Wazuh, correlaciona, scoring, y produce brain-incidents.",
+        "category": "ai",
+        "stack": "khainet",
+    },
+    {
+        "name": "Brain (Demo)",
+        "container": None,
+        "component": "AI Correlation (demo)",
         "status": "online",
         "host": "demo",
         "ip": None,
         "port": 4200,
         "image": "khainet/brain:latest",
-        "desc": "Capa de IA que correlaciona eventos de múltiples fuentes, asigna tácticas MITRE ATT&CK y genera narrativas de incidentes.",
+        "desc": "Motor de demostración de Brain que ejecuta el pipeline completo con datos sintéticos en el dashboard.",
         "category": "ai",
         "stack": None,
     },
@@ -1867,6 +1893,100 @@ async def get_infra_connectors():
             "running": running,
             "failed": failed,
             "connect_url": "http://172.26.10.98:8083",
+        }
+    )
+
+
+@app.get("/api/incidents")
+async def get_incidents():
+    """Lee incidentes recientes del topic brain-incidents de Kafka.
+
+    Usa kafka-python para consumir los últimos mensajes del topic
+    brain-incidents y los devuelve ordenados por timestamp.
+    """
+    import os
+    import json as _json
+    from kafka import KafkaConsumer
+    from kafka.errors import KafkaError
+
+    kafka_broker = os.environ.get("KAFKA_BROKER", "172.26.10.98:9092")
+
+    incidents = []
+    try:
+        consumer = KafkaConsumer(
+            "brain-incidents",
+            bootstrap_servers=kafka_broker,
+            auto_offset_reset="latest",
+            enable_auto_commit=False,
+            value_deserializer=lambda v: _json.loads(v.decode("utf-8")) if v else None,
+            consumer_timeout_ms=3000,
+            group_id="dashboard-incidents-reader",
+        )
+
+        # Read available messages (non-blocking, timeout above)
+        for msg in consumer:
+            if msg.value:
+                incidents.append(msg.value)
+
+        consumer.close()
+    except KafkaError:
+        pass
+    except Exception:
+        pass
+
+    # Sort by created_at descending, limit to 50
+    incidents.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    incidents = incidents[:50]
+
+    return JSONResponse(
+        {
+            "incidents": incidents,
+            "total": len(incidents),
+            "topic": "brain-incidents",
+        }
+    )
+
+
+@app.get("/api/ml-scores")
+async def get_ml_scores():
+    """Lee los últimos ml-scores del topic ml-scores de Kafka."""
+    import os
+    import json as _json
+    from kafka import KafkaConsumer
+    from kafka.errors import KafkaError
+
+    kafka_broker = os.environ.get("KAFKA_BROKER", "172.26.10.98:9092")
+
+    scores = []
+    try:
+        consumer = KafkaConsumer(
+            "ml-scores",
+            bootstrap_servers=kafka_broker,
+            auto_offset_reset="latest",
+            enable_auto_commit=False,
+            value_deserializer=lambda v: _json.loads(v.decode("utf-8")) if v else None,
+            consumer_timeout_ms=3000,
+            group_id="dashboard-scores-reader",
+        )
+
+        for msg in consumer:
+            if msg.value:
+                scores.append(msg.value)
+
+        consumer.close()
+    except KafkaError:
+        pass
+    except Exception:
+        pass
+
+    scores.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    scores = scores[:50]
+
+    return JSONResponse(
+        {
+            "scores": scores,
+            "total": len(scores),
+            "topic": "ml-scores",
         }
     )
 

@@ -387,6 +387,7 @@ class DetectionConsumer:
 
 def main() -> None:
     """Run the detection consumer standalone."""
+    import os
     import sys
     from pathlib import Path
 
@@ -395,7 +396,16 @@ def main() -> None:
     if pipeline_root not in sys.path:
         sys.path.insert(0, pipeline_root)
 
-    config = PipelineConfig()
+    # Load config from YAML if specified, otherwise use defaults
+    # Supports env var PIPELINE_CONFIG for Docker deployment
+    config_path = os.environ.get("PIPELINE_CONFIG")
+    if config_path and Path(config_path).exists():
+        config = PipelineConfig.from_yaml(config_path)
+        log.info("loaded_config_from_file", path=config_path)
+    else:
+        config = PipelineConfig()
+        log.info("using_default_config")
+
     consumer = DetectionConsumer(config)
 
     log.info("starting_detection_consumer", broker=config.kafka_broker)
