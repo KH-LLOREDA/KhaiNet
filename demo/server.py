@@ -1388,128 +1388,400 @@ NETWORK_TOPOLOGY = {
 }
 
 # --- Mock infrastructure services ---
+# --- Stack KhaiNet desplegado en Portainer (ID 24, docker02) ---
+# 11 containers reales + servicios planificados (Shuffle, TheHive, MISP)
 INFRA_SERVICES = [
+    # === Core: Kafka bus ===
     {
         "name": "Kafka",
+        "container": "khainet-kafka",
         "component": "Message Bus",
         "status": "online",
         "host": "docker02",
+        "ip": "172.25.0.2",
         "port": 9092,
         "image": "apache/kafka:latest",
-        "desc": "Bus de mensajes que conecta todos los componentes del pipeline. Los sensores publican eventos, los consumers los procesan.",
+        "desc": "Bus de mensajes KRaft que conecta todos los componentes. Los sensores publican eventos, los consumers los procesan.",
         "category": "core",
+        "stack": "khainet",
     },
     {
         "name": "Kafka-UI",
+        "container": "khainet-kafka-ui",
         "component": "Management",
         "status": "online",
         "host": "docker02",
+        "ip": "172.25.0.3",
         "port": 8089,
-        "image": "provectuslabs/kafka-ui",
+        "image": "provectuslabs/kafka-ui:latest",
         "desc": "Interfaz web para gestionar topics, ver mensajes y monitorizar el bus Kafka.",
         "category": "management",
+        "stack": "khainet",
+        "url": "http://172.26.10.98:8089",
     },
+    # === Sensores reales ===
     {
         "name": "Zeek",
+        "container": "khainet-zeek",
         "component": "Network Sensor",
-        "status": "planned",
-        "host": "sensor-01",
+        "status": "online",
+        "host": "docker02",
+        "ip": "172.25.0.9",
         "port": None,
-        "image": "zeek/zeek:latest",
-        "desc": "Sensor de red que captura y analiza tráfico. Genera logs estructurados: conn, dns, http, ssl. Es el 'ojo' de KhaiNet sobre la red.",
+        "image": "zeek/zeek:7.0.0",
+        "desc": "Sensor de red que procesa PCAPs y genera logs JSON (conn, dns, http, ssl, ssh). El 'ojo' de KhaiNet sobre la red.",
         "category": "sensor",
+        "stack": "khainet",
     },
     {
         "name": "Suricata",
+        "container": "khainet-suricata",
         "component": "IDS/IPS",
-        "status": "planned",
-        "host": "sensor-01",
+        "status": "online",
+        "host": "docker02",
+        "ip": "172.25.0.10",
         "port": None,
-        "image": "jasonish/suricata",
-        "desc": "Sistema de detección de intrusos basado en reglas. Detecta patrones conocidos (signatures) y genera alertas con severidad y categorización MITRE ATT&CK.",
+        "image": "jasonish/suricata:7.0.0",
+        "desc": "IDS que analiza PCAPs con reglas ET Open y genera eve.json con alertas, severidad y categorización MITRE ATT&CK.",
         "category": "sensor",
+        "stack": "khainet",
     },
     {
         "name": "Wazuh",
+        "container": "khainet-wazuh",
         "component": "HIDS/SIEM",
-        "status": "planned",
+        "status": "online",
         "host": "docker02",
-        "port": 55000,
-        "image": "wazuh/wazuh-manager:latest",
-        "desc": "HIDS que monitoriza endpoints (file integrity, rootkits, logs de auth). Actúa como fuente de etiquetas para el auto-etiquetado.",
+        "ip": "172.25.0.11",
+        "port": 1514,
+        "image": "wazuh/wazuh-manager:4.7.0",
+        "desc": "HIDS/SIEM manager con filebeat integrado. Monitoriza endpoints: file integrity, rootkits, logs de auth.",
         "category": "sensor",
+        "stack": "khainet",
     },
     {
-        "name": "OpenSearch",
-        "component": "Search & Storage",
-        "status": "planned",
+        "name": "Filebeat",
+        "container": "khainet-filebeat",
+        "component": "Log Shipper",
+        "status": "online",
         "host": "docker02",
+        "ip": "172.25.0.12",
+        "port": None,
+        "image": "elastic/filebeat:7.16.3",
+        "desc": "Shipper que lee logs de Zeek, Suricata y Wazuh y los envía a Kafka con routing por tipo de log.",
+        "category": "sensor",
+        "stack": "khainet",
+    },
+    # === Almacenamiento ===
+    {
+        "name": "OpenSearch",
+        "container": "khainet-opensearch",
+        "component": "Search & Storage",
+        "status": "online",
+        "host": "docker02",
+        "ip": "172.25.0.5",
         "port": 9200,
-        "image": "opensearchproject/opensearch:latest",
-        "desc": "Almacenamiento y búsqueda de logs. Indexa eventos de Zeek, alertas de Suricata y eventos de Wazuh. Dashboards para visualización.",
+        "image": "opensearchproject/opensearch:2.16",
+        "desc": "Data lake para logs. Indexa eventos de Zeek, alertas de Suricata y eventos de Wazuh. 153K+ docs indexados.",
         "category": "storage",
+        "stack": "khainet",
     },
     {
         "name": "OpenSearch Dashboards",
+        "container": "khainet-opensearch-dashboards",
         "component": "Visualization",
-        "status": "planned",
+        "status": "online",
         "host": "docker02",
+        "ip": "172.25.0.4",
         "port": 5601,
-        "image": "opensearchproject/opensearch-dashboards",
+        "image": "opensearchproject/opensearch-dashboards:2.16",
         "desc": "Interfaz web para crear dashboards y visualizaciones sobre los datos almacenados en OpenSearch.",
         "category": "storage",
+        "stack": "khainet",
+        "url": "http://172.26.10.98:5601",
     },
     {
         "name": "ClickHouse",
+        "container": "khainet-clickhouse",
         "component": "Analytics DB",
-        "status": "planned",
-        "host": "docker03",
-        "port": 8123,
-        "image": "clickhouse/clickhouse-server",
-        "desc": "Base de datos columnar para analytics a alta velocidad. Almacena agregados y métricas para consultas rápidas.",
-        "category": "storage",
-    },
-    {
-        "name": "Brain",
-        "component": "AI Correlation",
         "status": "online",
         "host": "docker02",
-        "port": 8001,
+        "ip": "172.25.0.6",
+        "port": 8123,
+        "image": "clickhouse/clickhouse-server:24.8",
+        "desc": "Base de datos columnar para analytics a alta velocidad. Almacena eventos de Zeek y métricas para consultas rápidas.",
+        "category": "storage",
+        "stack": "khainet",
+    },
+    # === Pipeline ===
+    {
+        "name": "Kafka Connect",
+        "container": "khainet-kafka-connect",
+        "component": "Sinks & Connectors",
+        "status": "online",
+        "host": "docker02",
+        "ip": "172.25.0.7",
+        "port": 8083,
+        "image": "khainet-kafka-connect:latest",
+        "desc": "Kafka Connect 7.7.3 con plugin ClickHouse. 5 sink connectors que mueven datos de Kafka a ClickHouse y OpenSearch.",
+        "category": "pipeline",
+        "stack": "khainet",
+        "url": "http://172.26.10.98:8083",
+    },
+    {
+        "name": "Logstash",
+        "container": "khainet-logstash",
+        "component": "Kafka → OpenSearch",
+        "status": "online",
+        "host": "docker02",
+        "ip": "172.25.0.8",
+        "port": None,
+        "image": "logstash:7.16.3",
+        "desc": "Pipeline Logstash que consume de Kafka y envía a OpenSearch. Necesario porque el ES connector es incompatible con OpenSearch 2.x.",
+        "category": "pipeline",
+        "stack": "khainet",
+    },
+    # === IA (demo engine, no container) ===
+    {
+        "name": "Brain",
+        "container": None,
+        "component": "AI Correlation",
+        "status": "online",
+        "host": "demo",
+        "ip": None,
+        "port": 4200,
         "image": "khainet/brain:latest",
         "desc": "Capa de IA que correlaciona eventos de múltiples fuentes, asigna tácticas MITRE ATT&CK y genera narrativas de incidentes.",
         "category": "ai",
+        "stack": None,
     },
+    # === Planificados (no desplegados aún) ===
     {
         "name": "Shuffle",
+        "container": None,
         "component": "SOAR",
         "status": "planned",
         "host": "docker02",
+        "ip": None,
         "port": 3001,
         "image": "shuffle/shuffle:latest",
         "desc": "Orquestador de respuestas automatizadas (SOAR). Ejecuta playbooks cuando se detectan incidentes: aísla hosts, bloquea IPs, notifica al equipo.",
         "category": "soar",
+        "stack": None,
     },
     {
         "name": "TheHive",
+        "container": None,
         "component": "Incident Response",
         "status": "planned",
         "host": "docker03",
+        "ip": None,
         "port": 9000,
         "image": "thehiveproject/thehive:latest",
         "desc": "Plataforma de gestión de incidentes. Crea casos, asigna tareas, hace seguimiento de investigaciones.",
         "category": "soar",
+        "stack": None,
     },
     {
         "name": "MISP",
+        "container": None,
         "component": "Threat Intel",
         "status": "planned",
         "host": "docker03",
+        "ip": None,
         "port": 80,
         "image": "harvardit5/misp:latest",
         "desc": "Plataforma de inteligencia de amenazas. Comparte y consume IOCs (IPs, dominios, hashes maliciosos). Fuente de etiquetas para auto-etiquetado.",
         "category": "intel",
+        "stack": None,
     },
 ]
+
+
+# ===========================================================================
+# InfraMonitor — consulta el estado real de containers y connectors
+# ===========================================================================
+
+
+class InfraMonitor:
+    """Monitoriza el estado real de los containers del stack KhaiNet
+    via Portainer API y los connectors de Kafka Connect via REST API."""
+
+    def __init__(self):
+        self._portainer_jwt: str | None = None
+        self._jwt_expires: float = 0.0
+        self._last_containers: dict[str, dict] = {}
+        self._last_connectors: list[dict] = []
+        self._last_check_containers: float = 0.0
+        self._last_check_connectors: float = 0.0
+
+    def _get_portainer_jwt(self) -> str | None:
+        """Obtiene JWT de Portainer (cacheado hasta expirar)."""
+        import os
+        import requests as req
+
+        now = time.time()
+        if self._portainer_jwt and now < self._jwt_expires - 60:
+            return self._portainer_jwt
+
+        try:
+            portainer_url = os.environ.get("PORTAINER_URL", "https://172.26.10.98:9443")
+            portainer_user = os.environ.get("PORTAINER_USER", "admin")
+            portainer_pass = os.environ.get("PORTAINER_PASS", "")
+            if not portainer_pass:
+                return None
+
+            resp = req.post(
+                f"{portainer_url}/api/auth",
+                json={"Username": portainer_user, "Password": portainer_pass},
+                verify=False,
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                token = resp.json().get("jwt", "")
+                self._portainer_jwt = token
+                self._jwt_expires = now + 3600  # JWT válido 1h
+                return token
+        except Exception:
+            pass
+        return None
+
+    def get_containers(self) -> dict[str, dict]:
+        """Consulta el estado real de los containers via Portainer Docker API.
+        Returns dict: container_name → {state, status, health, ip, image}
+        """
+        now = time.time()
+        if now - self._last_check_containers < 10 and self._last_containers:
+            return self._last_containers
+
+        import requests as req
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        jwt = self._get_portainer_jwt()
+        if not jwt:
+            return self._last_containers
+
+        try:
+            portainer_url = "https://172.26.10.98:9443"
+            headers = {"Authorization": f"Bearer {jwt}"}
+            # endpointId=3 = docker02
+            resp = req.get(
+                f"{portainer_url}/api/endpoints/3/docker/containers/json?all=true",
+                headers=headers,
+                verify=False,
+                timeout=8,
+            )
+            if resp.status_code != 200:
+                return self._last_containers
+
+            containers = resp.json()
+            result = {}
+            for c in containers:
+                name = (c.get("Names", [""])[0] or "").lstrip("/")
+                state = c.get("State", "unknown")
+                status = c.get("Status", "")
+                image = c.get("Image", "")
+
+                # Extraer IP de la red khainet-network
+                networks = c.get("NetworkSettings", {}).get("Networks", {})
+                ip = None
+                for net_name, net_info in networks.items():
+                    if "khainet" in net_name:
+                        ip = net_info.get("IPAddress", "")
+                        break
+                if not ip and networks:
+                    # fallback a primera red
+                    first_net = next(iter(networks.values()), {})
+                    ip = first_net.get("IPAddress", "")
+
+                # Health status
+                health = None
+                inspect_data = c.get("State", {})
+                if isinstance(inspect_data, dict):
+                    health_obj = inspect_data.get("Health", {})
+                    if health_obj:
+                        health = health_obj.get("Status", "")
+
+                result[name] = {
+                    "state": state,
+                    "status": status,
+                    "health": health,
+                    "ip": ip,
+                    "image": image,
+                }
+
+            self._last_containers = result
+            self._last_check_containers = now
+            return result
+        except Exception:
+            return self._last_containers
+
+    def get_connectors(self) -> list[dict]:
+        """Consulta el estado de los Kafka Connect connectors via REST API."""
+        now = time.time()
+        if now - self._last_check_connectors < 15 and self._last_connectors:
+            return self._last_connectors
+
+        import requests as req
+
+        try:
+            base = "http://172.26.10.98:8083"
+            resp = req.get(f"{base}/connectors", timeout=5)
+            if resp.status_code != 200:
+                return self._last_connectors
+
+            connector_names = resp.json()
+            connectors = []
+            for name in connector_names:
+                try:
+                    status_resp = req.get(f"{base}/connectors/{name}/status", timeout=5)
+                    if status_resp.status_code == 200:
+                        data = status_resp.json()
+                        conn_state = data.get("connector", {}).get("state", "UNKNOWN")
+                        tasks = data.get("tasks", [])
+                        task_states = [
+                            {
+                                "id": f"{t.get('id', '?')}",
+                                "state": t.get("state", "UNKNOWN"),
+                                "trace": t.get("trace", "")[:200]
+                                if t.get("trace")
+                                else "",
+                            }
+                            for t in tasks
+                        ]
+                        all_running = (
+                            all(t["state"] == "RUNNING" for t in task_states)
+                            if task_states
+                            else False
+                        )
+                        connectors.append(
+                            {
+                                "name": name,
+                                "state": conn_state,
+                                "tasks": task_states,
+                                "healthy": conn_state == "RUNNING" and all_running,
+                            }
+                        )
+                except Exception:
+                    connectors.append(
+                        {
+                            "name": name,
+                            "state": "UNKNOWN",
+                            "tasks": [],
+                            "healthy": False,
+                        }
+                    )
+
+            self._last_connectors = connectors
+            self._last_check_connectors = now
+            return connectors
+        except Exception:
+            return self._last_connectors
+
+
+infra_monitor = InfraMonitor()
 
 
 @app.get("/api/network/topology")
@@ -1539,7 +1811,64 @@ async def get_active_links():
 @app.get("/api/infra/services")
 async def get_infra_services():
     """Estado de los servicios de infraestructura del stack KhaiNet."""
-    return JSONResponse({"services": INFRA_SERVICES})
+    # Merge con estado real de containers si está disponible
+    containers = infra_monitor.get_containers()
+    services = []
+    for s in INFRA_SERVICES:
+        svc = dict(s)
+        cname = s.get("container")
+        if cname and cname in containers:
+            c = containers[cname]
+            svc["real_status"] = c["state"]
+            svc["real_health"] = c.get("health")
+            svc["real_ip"] = c.get("ip") or s.get("ip")
+            svc["real_image"] = c.get("image", "")
+            # Override status si el container está parado
+            if c["state"] == "running":
+                svc["status"] = "online"
+            elif c["state"] in ("exited", "paused"):
+                svc["status"] = "offline"
+        services.append(svc)
+    return JSONResponse({"services": services})
+
+
+@app.get("/api/infra/containers")
+async def get_infra_containers():
+    """Estado real de los containers del stack KhaiNet via Portainer API."""
+    containers = infra_monitor.get_containers()
+    # Filtrar solo los containers khainet
+    khainet_containers = {
+        name: info for name, info in containers.items() if "khainet" in name
+    }
+    return JSONResponse(
+        {
+            "containers": khainet_containers,
+            "stack": "khainet",
+            "stack_id": 24,
+            "endpoint": "docker02 (3)",
+            "total": len(khainet_containers),
+            "running": sum(
+                1 for c in khainet_containers.values() if c["state"] == "running"
+            ),
+        }
+    )
+
+
+@app.get("/api/infra/connectors")
+async def get_infra_connectors():
+    """Estado de los Kafka Connect connectors via REST API."""
+    connectors = infra_monitor.get_connectors()
+    running = sum(1 for c in connectors if c.get("healthy"))
+    failed = sum(1 for c in connectors if not c.get("healthy"))
+    return JSONResponse(
+        {
+            "connectors": connectors,
+            "total": len(connectors),
+            "running": running,
+            "failed": failed,
+            "connect_url": "http://172.26.10.98:8083",
+        }
+    )
 
 
 @app.websocket("/ws")

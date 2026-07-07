@@ -393,8 +393,96 @@
         .badge-low { background: rgba(16,185,129,0.15); color: var(--green); }
         .badge-online { background: rgba(16,185,129,0.15); color: var(--green); }
         .badge-planned { background: rgba(100,116,139,0.15); color: var(--text-dim); }
+        .badge-offline { background: rgba(239,68,68,0.15); color: var(--red); }
         .badge-active { background: rgba(239,68,68,0.2); color: var(--red); }
         .badge-contained { background: rgba(245,158,11,0.15); color: var(--yellow); }
+
+        /* ==================== KPI MINI ==================== */
+        .kpi-mini {
+            background: var(--bg-inset);
+            border-radius: 8px;
+            padding: 12px 16px;
+            text-align: center;
+        }
+        .kpi-mini-value {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--text-bright);
+            font-variant-numeric: tabular-nums;
+        }
+        .kpi-mini-label {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        /* ==================== CONNECTOR ROW ==================== */
+        .connector-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: var(--bg-inset);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            transition: border-color 0.15s;
+        }
+        .connector-row:hover { border-color: var(--border-light); }
+        .connector-row.failed { border-left: 3px solid var(--red); }
+        .connector-row.running { border-left: 3px solid var(--green); }
+        .connector-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            flex-shrink: 0;
+            min-width: 220px;
+        }
+        .connector-tasks {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .task-pill {
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+        .task-pill.running { background: rgba(16,185,129,0.15); color: var(--green); }
+        .task-pill.failed { background: rgba(239,68,68,0.15); color: var(--red); cursor: help; }
+
+        /* ==================== SERVICE CARD EXTENDED ==================== */
+        .service-card-ip {
+            display: inline-block;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: var(--cyan);
+            background: rgba(6,182,212,0.1);
+            padding: 1px 6px;
+            border-radius: 4px;
+        }
+        .service-card-health {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .health-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+        }
+        .health-dot.healthy { background: var(--green); }
+        .health-dot.unhealthy { background: var(--red); }
+        .health-dot.starting { background: var(--yellow); }
+        .health-dot.none { background: var(--text-dim); }
+
+        .page-subheader {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+        }
 
         /* ==================== SCORE BARS ==================== */
         .score-text { font-size: 11px; text-align: center; font-variant-numeric: tabular-nums; }
@@ -1399,29 +1487,63 @@
         <div class="page" id="page-infrastructure">
             <div class="page-header">
                 <div class="page-title">Infraestructura</div>
-                <div class="page-desc">Estado de los servicios del stack KhaiNet: Kafka, sensores, almacenamiento, IA y SOAR.</div>
+                <div class="page-desc">Stack KhaiNet en Portainer · 11 containers en docker02 · sensores reales + pipeline completo</div>
             </div>
 
             <div class="info-box">
                 <div class="info-box-header" onclick="toggleInfoBox(this)">
                     <span class="info-box-icon">🖥️</span>
-                    <span class="info-box-title">¿Qué componentes forman el stack KhaiNet?</span>
+                    <span class="info-box-title">Stack KhaiNet — Portainer (ID 24, docker02)</span>
                     <span class="info-box-toggle">▼</span>
                 </div>
                 <div class="info-box-body">
-                    <p>KhaiNet se compone de <strong>12 servicios</strong> distribuidos en 3 hosts Docker (docker02, docker03, sensor-01). Cada servicio tiene un rol específico en el pipeline:</p>
+                    <p>El stack <strong>khainet</strong> agrupa <strong>11 containers</strong> desplegados en <strong>docker02</strong> (172.26.10.98) via Portainer Stacks. La red interna <code>khainet-network</code> (172.25.0.0/16) conecta todos los servicios:</p>
                     <ul>
-                        <li><strong>Sensores</strong>: Zeek (network), Suricata (IDS), Wazuh (HIDS) — capturan y analizan tráfico</li>
-                        <li><strong>Bus de mensajes</strong>: Kafka — conecta todos los componentes de forma asíncrona</li>
-                        <li><strong>Almacenamiento</strong>: OpenSearch (búsqueda de logs), ClickHouse (analytics)</li>
-                        <li><strong>IA</strong>: Brain (correlación), modelos IF/AE/HMM (detección)</li>
-                        <li><strong>Respuesta</strong>: Shuffle (SOAR), TheHive (gestión de incidentes)</li>
-                        <li><strong>Threat Intel</strong>: MISP (IOCs compartidos)</li>
+                        <li><strong>Sensores</strong>: Zeek (network), Suricata (IDS), Wazuh (HIDS), Filebeat (shipper) — capturan y procesan tráfico real</li>
+                        <li><strong>Bus de mensajes</strong>: Kafka (KRaft) + Kafka-UI — conecta todos los componentes</li>
+                        <li><strong>Almacenamiento</strong>: OpenSearch + Dashboards (búsqueda de logs), ClickHouse (analytics columnar)</li>
+                        <li><strong>Pipeline</strong>: Kafka Connect (sinks a ClickHouse), Logstash (sink a OpenSearch)</li>
+                        <li><strong>IA</strong>: Brain (correlación) — se ejecuta en el demo engine</li>
+                        <li><strong>Planificados</strong>: Shuffle (SOAR), TheHive (incident response), MISP (threat intel)</li>
                     </ul>
-                    <p>Los servicios marcados como <span class="badge badge-online">online</span> ya están desplegados. Los <span class="badge badge-planned">planned</span> se desplegarán en los próximos sprints.</p>
+                    <p>El estado de los containers se consulta en tiempo real via Portainer API. Los connectors de Kafka Connect via REST API.</p>
                 </div>
             </div>
 
+            <!-- Stack summary -->
+            <div class="card" style="margin-bottom:16px;">
+                <div class="card-header">
+                    <div class="card-title">📦 Stack Portainer</div>
+                    <span class="badge badge-online" id="stack-status-badge">RUNNING</span>
+                </div>
+                <div class="card-body no-scroll">
+                    <div class="grid grid-4" id="stack-summary-grid">
+                        <div class="kpi-mini">
+                            <div class="kpi-mini-value" id="stack-total">11</div>
+                            <div class="kpi-mini-label">Containers</div>
+                        </div>
+                        <div class="kpi-mini">
+                            <div class="kpi-mini-value" id="stack-running" style="color:var(--green);">—</div>
+                            <div class="kpi-mini-label">Running</div>
+                        </div>
+                        <div class="kpi-mini">
+                            <div class="kpi-mini-value" id="stack-connectors-ok" style="color:var(--green);">—</div>
+                            <div class="kpi-mini-label">Connectors OK</div>
+                        </div>
+                        <div class="kpi-mini">
+                            <div class="kpi-mini-value" id="stack-connectors-fail" style="color:var(--red);">—</div>
+                            <div class="kpi-mini-label">Connectors FAIL</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:12px;display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-dim);">
+                        <span>🐳 Stack: <strong style="color:var(--text);">khainet</strong> (ID 24)</span>
+                        <span>🖥️ Endpoint: <strong style="color:var(--text);">docker02</strong> (172.26.10.98)</span>
+                        <span>🌐 Red: <strong style="color:var(--text);">khainet-network</strong> (172.25.0.0/16)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Kafka Bus -->
             <div class="card" style="margin-bottom:16px;">
                 <div class="card-header">
                     <div class="card-title">🔗 Kafka Bus</div>
@@ -1435,7 +1557,7 @@
                         <div>
                             <div class="kafka-meta-row"><span>Broker</span><span class="kafka-meta-value" id="kafka-broker">172.26.10.98:9092</span></div>
                             <div class="kafka-meta-row"><span>Eventos enviados (demo)</span><span class="kafka-events-count" id="kafka-events-sent">0</span></div>
-                            <div class="kafka-meta-row"><span>Topics activos</span><span class="kafka-meta-value" id="kafka-topics-count">0 / 8</span></div>
+                            <div class="kafka-meta-row"><span>Topics activos</span><span class="kafka-meta-value" id="kafka-topics-count">0 / 11</span></div>
                             <div style="margin-top:10px;">
                                 <a href="http://172.26.10.98:8089" target="_blank" class="kafka-ui-link" id="kafka-ui-link" style="display:none;">🖥️ Abrir Kafka-UI</a>
                             </div>
@@ -1445,6 +1567,27 @@
                 </div>
             </div>
 
+            <!-- Kafka Connect -->
+            <div class="card" style="margin-bottom:16px;">
+                <div class="card-header">
+                    <div class="card-title">🔌 Kafka Connect — Sink Connectors</div>
+                    <span class="badge badge-online" id="connectors-badge">—</span>
+                </div>
+                <div class="card-body no-scroll">
+                    <div id="connectors-list" style="display:flex;flex-direction:column;gap:8px;">
+                        <div style="color:var(--text-dim);font-size:13px;">Cargando connectors...</div>
+                    </div>
+                    <div style="margin-top:10px;">
+                        <a href="http://172.26.10.98:8083" target="_blank" class="kafka-ui-link">🔌 Abrir Kafka Connect REST API</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Services grid -->
+            <div class="page-subheader" style="margin:20px 0 12px;">
+                <div style="font-size:15px;font-weight:700;color:var(--text-bright);">Servicios del stack</div>
+                <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">11 containers desplegados + 3 planificados</div>
+            </div>
             <div class="grid grid-3" id="infra-services-grid"></div>
         </div>
 
@@ -1501,7 +1644,8 @@ let activeLinks = [];  // Real-time active links from detection events
 
 const KAFKA_TOPICS = [
     'zeek-conn', 'zeek-dns', 'zeek-http', 'zeek-ssl',
-    'suricata-alerts', 'wazuh-events', 'ml-scores', 'brain-incidents'
+    'suricata-alerts', 'wazuh-events', 'ml-scores', 'brain-incidents',
+    'connect-configs', 'connect-offsets', 'connect-status'
 ];
 
 const ROUTES = {
@@ -1556,7 +1700,7 @@ function navigate(route) {
     if (route === 'devices') loadDevices();
     if (route === 'network') loadNetworkMap();
     if (route === 'incidents') loadIncidents();
-    if (route === 'infrastructure') loadInfraServices();
+    if (route === 'infrastructure') { loadInfraServices(); }
     if (route === 'architecture') loadArchitecture();
     // Close sidebar on navigate (mobile)
     closeSidebar();
@@ -2259,42 +2403,163 @@ async function loadIncidents() {
 // LOAD: INFRA SERVICES
 // =========================================================================
 async function loadInfraServices() {
-    if (!infraServices) {
-        try {
-            const resp = await fetch('/api/infra/services');
-            const data = await resp.json();
-            infraServices = data.services;
-        } catch (e) { return; }
-    }
+    // Always re-fetch to get real container status
+    try {
+        const resp = await fetch('/api/infra/services');
+        const data = await resp.json();
+        infraServices = data.services;
+    } catch (e) { return; }
     const container = document.getElementById('infra-services-grid');
     if (!container) return;
 
     const categoryColors = {
         core: '#3b82f6', sensor: '#10b981', storage: '#f59e0b',
         ai: '#8b5cf6', soar: '#ec4899', intel: '#06b6d4', management: '#64748b',
+        pipeline: '#06b6d4',
+    };
+    const categoryLabels = {
+        core: 'CORE', sensor: 'SENSOR', storage: 'STORAGE',
+        ai: 'IA', soar: 'SOAR', intel: 'INTEL', management: 'MGMT', pipeline: 'PIPELINE',
     };
 
     let html = '';
     for (const s of infraServices) {
         const color = categoryColors[s.category] || '#64748b';
-        const statusBadge = `<span class="badge badge-${s.status === 'online' ? 'online' : 'planned'}">${s.status.toUpperCase()}</span>`;
+        const catLabel = categoryLabels[s.category] || s.category.toUpperCase();
+        const isOnline = s.status === 'online';
+        const statusBadge = `<span class="badge badge-${isOnline ? 'online' : (s.status === 'offline' ? 'offline' : 'planned')}">${s.status.toUpperCase()}</span>`;
         const portText = s.port ? `:${s.port}` : '—';
+        const ipBadge = s.ip ? `<span class="service-card-ip">${s.ip}</span>` : '';
+        const urlLink = s.url ? `<a href="${s.url}" target="_blank" class="kafka-ui-link" style="font-size:11px;">🔗 Abrir</a>` : '';
+
+        // Health indicator
+        let healthHtml = '';
+        if (s.real_health) {
+            const healthClass = s.real_health === 'healthy' ? 'healthy' : s.real_health === 'unhealthy' ? 'unhealthy' : 'starting';
+            healthHtml = `<span class="service-card-health"><span class="health-dot ${healthClass}"></span>${s.real_health.toUpperCase()}</span>`;
+        }
+
+        // Container name
+        const containerName = s.container ? `<div style="font-size:10px;color:var(--text-dim);font-family:monospace;margin-top:2px;">🐳 ${s.container}</div>` : '';
+
         html += `<div class="service-card" style="border-left:3px solid ${color};">
             <div class="service-card-header">
                 <div>
                     <div class="service-card-name">${s.name}</div>
                     <div class="service-card-component">${s.component}</div>
+                    ${containerName}
                 </div>
-                ${statusBadge}
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+                    ${statusBadge}
+                    <span class="badge" style="background:${color}22;color:${color};font-size:9px;">${catLabel}</span>
+                </div>
             </div>
             <div class="service-card-desc">${s.desc}</div>
-            <div class="service-card-meta">
+            <div class="service-card-meta" style="flex-wrap:wrap;gap:8px;">
                 <span>📦 ${s.image}</span>
                 <span>🖥️ ${s.host}${portText}</span>
+                ${ipBadge}
+                ${healthHtml}
+                ${urlLink}
             </div>
         </div>`;
     }
     container.innerHTML = html;
+
+    // Load dynamic data
+    loadStackSummary();
+    loadConnectors();
+}
+
+// =========================================================================
+// LOAD: STACK SUMMARY (containers + connectors counts)
+// =========================================================================
+async function loadStackSummary() {
+    try {
+        const [contResp, connResp] = await Promise.all([
+            fetch('/api/infra/containers'),
+            fetch('/api/infra/connectors'),
+        ]);
+        const containers = await contResp.json();
+        const connectors = await connResp.json();
+
+        const running = containers.running || 0;
+        const total = containers.total || 11;
+        const connOk = connectors.running || 0;
+        const connFail = connectors.failed || 0;
+
+        const elRunning = document.getElementById('stack-running');
+        const elTotal = document.getElementById('stack-total');
+        const elConnOk = document.getElementById('stack-connectors-ok');
+        const elConnFail = document.getElementById('stack-connectors-fail');
+        const elStackBadge = document.getElementById('stack-status-badge');
+
+        if (elRunning) elRunning.textContent = running;
+        if (elTotal) elTotal.textContent = total;
+        if (elConnOk) elConnOk.textContent = connOk;
+        if (elConnFail) elConnFail.textContent = connFail;
+
+        if (elStackBadge) {
+            if (running === total) {
+                elStackBadge.className = 'badge badge-online';
+                elStackBadge.textContent = 'ALL RUNNING';
+            } else if (running > 0) {
+                elStackBadge.className = 'badge badge-contained';
+                elStackBadge.textContent = `${running}/${total} RUNNING`;
+            } else {
+                elStackBadge.className = 'badge badge-offline';
+                elStackBadge.textContent = 'STOPPED';
+            }
+        }
+    } catch (e) { /* silent */ }
+}
+
+// =========================================================================
+// LOAD: KAFKA CONNECT CONNECTORS
+// =========================================================================
+async function loadConnectors() {
+    const container = document.getElementById('connectors-list');
+    if (!container) return;
+    try {
+        const resp = await fetch('/api/infra/connectors');
+        const data = await resp.json();
+        const connectors = data.connectors || [];
+
+        const badge = document.getElementById('connectors-badge');
+        if (badge) {
+            const ok = data.running || 0;
+            const fail = data.failed || 0;
+            if (fail > 0) {
+                badge.className = 'badge badge-contained';
+                badge.textContent = `${ok} OK · ${fail} FAIL`;
+            } else {
+                badge.className = 'badge badge-online';
+                badge.textContent = `${ok} RUNNING`;
+            }
+        }
+
+        if (!connectors.length) {
+            container.innerHTML = '<div style="color:var(--text-dim);font-size:13px;">No hay connectors configurados.</div>';
+            return;
+        }
+
+        let html = '';
+        for (const c of connectors) {
+            const isHealthy = c.healthy;
+            const taskPills = (c.tasks || []).map(t => {
+                const cls = t.state === 'RUNNING' ? 'running' : 'failed';
+                const title = t.trace ? `title="${t.trace.replace(/"/g, '&quot;')}"` : '';
+                return `<span class="task-pill ${cls}" ${title}>Task ${t.id}: ${t.state}</span>`;
+            }).join('');
+            html += `<div class="connector-row ${isHealthy ? 'running' : 'failed'}">
+                <div class="connector-name">${c.name}</div>
+                <div class="connector-tasks">${taskPills}</div>
+            </div>`;
+        }
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = '<div style="color:var(--text-dim);font-size:13px;">No se pudo conectar con Kafka Connect.</div>';
+    }
 }
 
 // =========================================================================
@@ -2404,6 +2669,14 @@ async function pollKafkaStatus() {
 connect();
 setInterval(pollKafkaStatus, 5000);
 setTimeout(pollKafkaStatus, 2000);
+
+// Poll infra status when on infrastructure page
+setInterval(() => {
+    if (document.getElementById('page-infrastructure')?.classList.contains('active')) {
+        loadStackSummary();
+        loadConnectors();
+    }
+}, 15000);
 </script>
 
 </body>
