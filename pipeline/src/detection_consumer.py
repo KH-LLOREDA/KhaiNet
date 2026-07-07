@@ -131,7 +131,6 @@ class DetectionConsumer:
                 auto_offset_reset=self.config.auto_offset_reset,
                 enable_auto_commit=True,
                 value_deserializer=lambda v: json.loads(v.decode("utf-8")),
-                consumer_timeout_ms=1000,
             )
         return self._consumer
 
@@ -263,7 +262,7 @@ class DetectionConsumer:
                 else 0.0
             )
 
-            # Get src_ip/dst_ip from first result
+            # Get src_ip from first result
             first = model_scores[0]
             result = DetectionResult(
                 event_id=event_id,
@@ -273,7 +272,7 @@ class DetectionConsumer:
                 threshold=first.threshold,
                 timestamp=datetime.now(timezone.utc),
                 src_ip=first.src_ip,
-                dst_ip=first.dst_ip,
+                dst_ip="",
                 details={
                     "model_count": len(model_scores),
                     "models": [mr.model_name for mr in model_scores],
@@ -291,15 +290,45 @@ class DetectionConsumer:
                 self._recent_results.pop(0)
 
     def _produce_score(self, result: DetectionResult) -> None:
-        """Produce a detection result to the ml-scores topic.
+        """Produce a detection result to the ml-scores topic as an Alert.
+
+        The payload is formatted as a Brain-compatible Alert so the brain
+        consumer can validate it directly.
 
         Args:
             result: The DetectionResult to send.
         """
-        payload = result.model_dump()
-        # Ensure timestamp is ISO format
-        if hasattr(payload.get("timestamp"), "isoformat"):
-            payload["timestamp"] = payload["timestamp"].isoformat()
+        # Map DetectionResult → Brain Alert schema
+        severity = int(result.fused_score * 100)
+        # Determine event type from model scores
+        event_type = "anomaly"
+        if "hmm" in result.model_scores:
+            # HMM states: 0=normal, 1=c2, 2=exfil, 3=scan
+            pass  # Could map HMM state to event_type
+
+        payload = {
+            "alert_id": result.event_id,
+            "timestamp": result.timestamp.isoformat()
+            if hasattr(result.timestamp, "isoformat")
+            else str(result.timestamp),
+            "source": "detection_consumer",
+            "source_type": "anomaly",
+            "severity_raw": severity,
+            "confidence": result.fused_score,
+            "src_ip": result.src_ip or "unknown",
+            "dst_ip": result.dst_ip or "unknown",
+            "protocol": "tcp",
+            "event_type": event_type,
+            "ml_model": ",".join(result.details.get("models", [])),
+            "ml_score": result.fused_score,
+            "ml_features": {
+                "model_scores": result.model_scores,
+                "is_anomaly": result.is_anomaly,
+                "threshold": result.threshold,
+            },
+            "tags": ["ml_detection"] + (["anomaly"] if result.is_anomaly else []),
+            "raw_event": result.details,
+        }
 
         try:
             self.producer.send("ml-scores", value=payload, key=result.src_ip or None)
@@ -311,18 +340,23 @@ class DetectionConsumer:
         """Main consumer loop (runs in background thread)."""
         log.info("detection_consumer_started")
 
-        try:
-            for msg in self.consumer:
-                if not self._running:
-                    break
-                self._process_message(msg)
-        except KafkaError as exc:
-            log.error("consumer_error", error=str(exc))
-        finally:
-            # Process any remaining buffered events
-            if any(len(b) > 0 for b in self._buffers.values()):
-                self._process_batch()
-            log.info("detection_consumer_stopped")
+        while self._running:
+            try:
+                for msg in self.consumer:
+                    if not self._running:
+                        break
+                    try:
+                        self._process_message(msg)
+                    except Exception as exc:  # noqa: BLE001
+                        log.error("message_processing_error", error=str(exc))
+            except KafkaError as exc:
+                log.error("consumer_error", error=str(exc))
+                time.sleep(5)  # Back off before retrying
+
+        # Process any remaining buffered events
+        if any(len(b) > 0 for b in self._buffers.values()):
+            self._process_batch()
+        log.info("detection_consumer_stopped")
 
     def start(self) -> None:
         """Start the detection consumer in a background thread."""

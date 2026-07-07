@@ -43,9 +43,9 @@ sensor:
 detection:
   consumer_group: "detection-consumer"
   batch_size: 20
-  auto_offset_reset: "latest"
+  auto_offset_reset: "earliest"
 
 tuning:
   consumer_group: "tuning-consumer"
   temporal_window_seconds: 60
-  auto_offset_reset: "latest"
+  auto_offset_reset: "earliest"

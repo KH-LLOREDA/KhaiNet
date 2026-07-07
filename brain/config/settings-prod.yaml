@@ -9,7 +9,7 @@ kafka:
     - "wazuh-events"
   output_topic: "brain-incidents"
   dlq_topic: "brain-dlq"
-  auto_offset_reset: "latest"
+  auto_offset_reset: "earliest"
   enable_auto_commit: false
   poll_timeout: 1.0
 

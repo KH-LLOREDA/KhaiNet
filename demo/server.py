@@ -1901,36 +1901,34 @@ async def get_infra_connectors():
 async def get_incidents():
     """Lee incidentes recientes del topic brain-incidents de Kafka.
 
-    Usa kafka-python para consumir los últimos mensajes del topic
+    Usa Kafka UI API (HTTP) para leer los últimos mensajes del topic
     brain-incidents y los devuelve ordenados por timestamp.
     """
     import os
     import json as _json
-    from kafka import KafkaConsumer
-    from kafka.errors import KafkaError
+    import urllib.request
 
-    kafka_broker = os.environ.get("KAFKA_BROKER", "172.26.10.98:9092")
+    kafka_ui_url = "http://172.26.10.98:8089/api/clusters/khainet/topics/brain-incidents/messages?limit=100"
 
     incidents = []
     try:
-        consumer = KafkaConsumer(
-            "brain-incidents",
-            bootstrap_servers=kafka_broker,
-            auto_offset_reset="latest",
-            enable_auto_commit=False,
-            value_deserializer=lambda v: _json.loads(v.decode("utf-8")) if v else None,
-            consumer_timeout_ms=3000,
-            group_id="dashboard-incidents-reader",
-        )
-
-        # Read available messages (non-blocking, timeout above)
-        for msg in consumer:
-            if msg.value:
-                incidents.append(msg.value)
-
-        consumer.close()
-    except KafkaError:
-        pass
+        req = urllib.request.Request(kafka_ui_url)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8")
+        # Parse SSE stream: lines starting with "data:" contain JSON
+        for line in raw.split("\n"):
+            if line.startswith("data:"):
+                try:
+                    chunk = _json.loads(line[5:].strip())
+                    if chunk.get("type") == "MESSAGE" and chunk.get("message"):
+                        msg = chunk["message"]
+                        value = msg.get("content", msg.get("value", {}))
+                        if isinstance(value, str):
+                            value = _json.loads(value)
+                        if value:
+                            incidents.append(value)
+                except (_json.JSONDecodeError, KeyError):
+                    pass
     except Exception:
         pass
 
@@ -1950,32 +1948,29 @@ async def get_incidents():
 @app.get("/api/ml-scores")
 async def get_ml_scores():
     """Lee los últimos ml-scores del topic ml-scores de Kafka."""
-    import os
     import json as _json
-    from kafka import KafkaConsumer
-    from kafka.errors import KafkaError
+    import urllib.request
 
-    kafka_broker = os.environ.get("KAFKA_BROKER", "172.26.10.98:9092")
+    kafka_ui_url = "http://172.26.10.98:8089/api/clusters/khainet/topics/ml-scores/messages?limit=100"
 
     scores = []
     try:
-        consumer = KafkaConsumer(
-            "ml-scores",
-            bootstrap_servers=kafka_broker,
-            auto_offset_reset="latest",
-            enable_auto_commit=False,
-            value_deserializer=lambda v: _json.loads(v.decode("utf-8")) if v else None,
-            consumer_timeout_ms=3000,
-            group_id="dashboard-scores-reader",
-        )
-
-        for msg in consumer:
-            if msg.value:
-                scores.append(msg.value)
-
-        consumer.close()
-    except KafkaError:
-        pass
+        req = urllib.request.Request(kafka_ui_url)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8")
+        for line in raw.split("\n"):
+            if line.startswith("data:"):
+                try:
+                    chunk = _json.loads(line[5:].strip())
+                    if chunk.get("type") == "MESSAGE" and chunk.get("message"):
+                        msg = chunk["message"]
+                        value = msg.get("content", msg.get("value", {}))
+                        if isinstance(value, str):
+                            value = _json.loads(value)
+                        if value:
+                            scores.append(value)
+                except (_json.JSONDecodeError, KeyError):
+                    pass
     except Exception:
         pass
 
