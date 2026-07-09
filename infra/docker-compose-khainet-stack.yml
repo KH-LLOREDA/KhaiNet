@@ -27,6 +27,14 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # --- Retención de datos (evita que Kafka llene el disco) ---
+      # Política: retener máximo 24h O hasta que el topic alcance 2GB por partición
+      # Lo que se cumpla primero. El chequeo de retención corre cada 5 minutos.
+      KAFKA_LOG_RETENTION_HOURS: "24"
+      KAFKA_LOG_RETENTION_BYTES: "2147483648"          # 2 GB por partición (safety net)
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: "300000"  # 5 min
+      KAFKA_LOG_SEGMENT_BYTES: "104857600"             # 100 MB por segmento
+      KAFKA_LOG_CLEANUP_POLICY: "delete"
     ports:
       - "9092:9092"
     volumes:
