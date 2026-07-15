@@ -1201,13 +1201,15 @@
                         <li><strong>Eventos en tiempo real</strong>: cada evento con scores de los 3 modelos (IF, AE, HMM) y etiqueta de consenso</li>
                         <li><strong>Active Learning</strong>: eventos inciertos que el sistema pide al analista que revise</li>
                     </ul>
-                    <p>Usa el menú lateral para explorar cada componente en detalle. Las secciones de <strong>Dispositivos</strong> y <strong>Mapa de red</strong> muestran datos de ejemplo (mock) preparados para cuando se desplieguen los sensores reales.</p>
+                    <p>Usa el menú lateral para explorar cada componente en detalle. Las secciones de <strong>Dispositivos</strong> y <strong>Mapa de red</strong> muestran datos reales extraídos de los logs de Zeek en OpenSearch. El mapa se actualiza automáticamente con los hosts y conexiones observados.</p>
                 </div>
             </div>
 
             <div class="kpi-row">
                 <div class="kpi-card"><div class="kpi-value" id="kpi-events">0</div><div class="kpi-label">Eventos totales</div></div>
                 <div class="kpi-card"><div class="kpi-value" id="kpi-anomalies" style="color:var(--red);">0</div><div class="kpi-label">Anomalías reales</div></div>
+                <div class="kpi-card"><div class="kpi-value" id="kpi-incidents" style="color:var(--red);">0</div><div class="kpi-label">Incidentes Brain</div></div>
+                <div class="kpi-card"><div class="kpi-value" id="kpi-hosts" style="color:var(--cyan);">0</div><div class="kpi-label">Hosts únicos</div></div>
                 <div class="kpi-card"><div class="kpi-value" id="kpi-labeled" style="color:var(--accent);">0</div><div class="kpi-label">Eventos etiquetados</div></div>
                 <div class="kpi-card"><div class="kpi-value" id="kpi-unlabeled" style="color:var(--yellow);">0</div><div class="kpi-label">Sin etiquetar</div></div>
                 <div class="kpi-card"><div class="kpi-value" id="kpi-reviews" style="color:var(--purple);">0</div><div class="kpi-label">Revisiones analista</div></div>
@@ -1394,7 +1396,7 @@
                         <li><strong>Enriquecimiento manual</strong>: el analista puede añadir metadatos (tipo, OS, criticidad, tags)</li>
                     </ul>
                     <p>Cada dispositivo tiene un <strong>nivel de riesgo</strong> (critical/high/medium/low) basado en su criticidad para el negocio y su exposición. Los <strong>tags</strong> permiten clasificar dispositivos (ej: <code>crown-jewel</code>, <code>compromised</code>, <code>iot</code>).</p>
-                    <p><em>Nota: Los datos mostrados ahora son de ejemplo (mock). Cuando Zeek esté desplegado, el inventario se poblará automáticamente.</em></p>
+                    <p><em>Los datos del inventario se extraen en tiempo real de los logs de Zeek en OpenSearch. Cada host observado aparece automáticamente con su zona, número de eventos e incidentes correlacionados.</em></p>
                 </div>
             </div>
 
@@ -1412,10 +1414,10 @@
                                 <th>IP</th>
                                 <th>Zona</th>
                                 <th>Tipo</th>
-                                <th>OS</th>
                                 <th>Riesgo</th>
+                                <th style="text-align:right;">Eventos</th>
+                                <th style="text-align:right;">Incidentes</th>
                                 <th>Tags</th>
-                                <th>Primera vista</th>
                             </tr>
                         </thead>
                         <tbody id="devices-tbody"></tbody>
@@ -1782,6 +1784,8 @@ function updateAllPages(msg) {
     // KPIs
     document.getElementById('kpi-events').textContent = fmtNum(stats.total_events || 0);
     document.getElementById('kpi-anomalies').textContent = fmtNum(stats.total_anomalies || 0);
+    document.getElementById('kpi-incidents').textContent = fmtNum(stats.total_incidents || 0);
+    document.getElementById('kpi-hosts').textContent = fmtNum(stats.unique_hosts || 0);
     document.getElementById('kpi-labeled').textContent = fmtNum(stats.total_labeled || 0);
     document.getElementById('kpi-unlabeled').textContent = fmtNum(stats.total_unlabeled || 0);
     document.getElementById('kpi-reviews').textContent = fmtNum(stats.analyst_reviews || 0);
@@ -2109,15 +2113,17 @@ async function loadDevices() {
     for (const d of devices) {
         const riskBadge = `<span class="badge badge-${d.risk}">${d.risk.toUpperCase()}</span>`;
         const tags = d.tags.map(t => `<span class="tag-chip">${t}</span>`).join('');
+        const evCount = d.event_count ? fmtNum(d.event_count) : '—';
+        const incCount = d.incident_count ? fmtNum(d.incident_count) : '—';
         html += `<tr onclick="selectDevice('${d.id}')" style="cursor:pointer;">
             <td style="font-weight:600;">${d.name}</td>
             <td class="mono">${d.ip}</td>
             <td><span style="color:${zoneColors[d.zone]};">●</span> ${zoneNames[d.zone]}</td>
             <td>${d.type}</td>
-            <td>${d.os}</td>
             <td>${riskBadge}</td>
+            <td style="text-align:right;">${evCount}</td>
+            <td style="text-align:right; color:${d.incident_count > 0 ? 'var(--red)' : 'var(--text-dim)'};">${incCount}</td>
             <td>${tags}</td>
-            <td style="color:var(--text-dim);font-size:12px;">${d.first_seen}</td>
         </tr>`;
     }
     document.getElementById('devices-tbody').innerHTML = html;
@@ -2154,10 +2160,13 @@ function selectDevice(deviceId) {
             <div style="margin-left:auto;"><span class="badge badge-${d.risk}">${d.risk.toUpperCase()}</span></div>
         </div>
         <div class="device-detail-grid">
-            <div class="device-detail-field"><div class="device-detail-label">Sistema operativo</div><div class="device-detail-value">${d.os}</div></div>
-            <div class="device-detail-field"><div class="device-detail-label">Tipo</div><div class="device-detail-value">${d.type}</div></div>
+            <div class="device-detail-field"><div class="device-detail-label">Dirección IP</div><div class="device-detail-value mono">${d.ip}</div></div>
             <div class="device-detail-field"><div class="device-detail-label">Zona</div><div class="device-detail-value" style="color:${zoneColors[d.zone]};">${zoneNames[d.zone]}</div></div>
-            <div class="device-detail-field"><div class="device-detail-label">Primera vista</div><div class="device-detail-value">${d.first_seen}</div></div>
+            <div class="device-detail-field"><div class="device-detail-label">Tipo</div><div class="device-detail-value">${d.type}</div></div>
+            <div class="device-detail-field"><div class="device-detail-label">Nivel de riesgo</div><div class="device-detail-value"><span class="badge badge-${d.risk}">${d.risk.toUpperCase()}</span></div></div>
+            <div class="device-detail-field"><div class="device-detail-label">Eventos observados</div><div class="device-detail-value" style="font-size:16px;font-weight:600;">${d.event_count ? fmtNum(d.event_count) : '—'}</div></div>
+            <div class="device-detail-field"><div class="device-detail-label">Incidentes correlacionados</div><div class="device-detail-value" style="font-size:16px;font-weight:600;color:${d.incident_count > 0 ? 'var(--red)' : 'var(--text-dim)'};">${d.incident_count ? fmtNum(d.incident_count) : '0'}</div></div>
+            <div class="device-detail-field" style="grid-column:1/-1;"><div class="device-detail-label">Notas</div><div style="font-size:12px;color:var(--text-dim);">${d.notes || ''}</div></div>
             <div class="device-detail-field" style="grid-column:1/-1;"><div class="device-detail-label">Tags</div><div>${tags}</div></div>
             <div class="device-detail-field" style="grid-column:1/-1;"><div class="device-detail-label">Notas</div><div style="font-size:13px;color:var(--text);">${d.notes}</div></div>
             <div class="device-detail-field" style="grid-column:1/-1;"><div class="device-detail-label">Conexiones (${links.length})</div><div>${linksHtml || '<span style="color:var(--text-dim);">Sin conexiones registradas</span>'}</div></div>

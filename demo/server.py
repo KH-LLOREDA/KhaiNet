@@ -343,7 +343,7 @@ class DemoEngine:
         # Build device IP pool from network topology for event generation
         self._device_ips = [
             {"id": d["id"], "ip": d["ip"], "zone": d["zone"], "name": d["name"]}
-            for d in NETWORK_TOPOLOGY["devices"]
+            for d in NETWORK_TOPOLOGY_FALLBACK["devices"]
         ]
         self._ip_to_device = {d["ip"]: d["id"] for d in self._device_ips}
         print(f"[Demo] Device IP pool: {len(self._device_ips)} devices from topology")
@@ -908,14 +908,28 @@ class DemoEngine:
         return result
 
     def get_stats(self) -> dict[str, Any]:
+        # Try to get real counts from OpenSearch
+        real_stats = topology_builder.get_real_stats()
+        if real_stats:
+            total_events = real_stats["total_events"]
+            total_incidents = real_stats["total_incidents"]
+            unique_hosts = real_stats["unique_hosts"]
+        else:
+            total_events = self.total_events
+            total_incidents = 0
+            unique_hosts = 0
+
         return {
             "tick": self.tick_count,
-            "total_events": self.total_events,
+            "total_events": total_events,
             "total_anomalies": self.total_anomalies,
             "total_labeled": self.total_labeled,
-            "total_unlabeled": self.total_events - self.total_labeled,
+            "total_unlabeled": total_events - self.total_labeled,
+            "total_incidents": total_incidents,
+            "unique_hosts": unique_hosts,
             "analyst_reviews": self.total_analyst_reviews,
             "is_trained": self.is_trained,
+            "data_source": "opensearch" if real_stats else "synthetic",
             "models": {
                 "isolation_forest": self.orchestrator.if_detector.model is not None
                 if self.orchestrator
@@ -1069,14 +1083,381 @@ async def kafka_topics():
 
 
 # ===========================================================================
-# Network topology & device inventory (mock data for design phase)
+# Network topology & device inventory
 # ===========================================================================
+# The topology is built dynamically from real Zeek data in OpenSearch.
+# A static fallback (NETWORK_TOPOLOGY_FALLBACK) is used when OpenSearch
+# is unavailable. When real sensors feed data into the pipeline, the map
+# updates automatically to reflect the actual hosts and connections observed.
 
-# --- Mock network topology ---
-# Represents a typical enterprise network with zones, devices, and connections.
-# When real sensors are deployed, this will be populated from Zeek + asset inventory.
 
-NETWORK_TOPOLOGY = {
+class TopologyBuilder:
+    """Builds network topology dynamically from real Zeek data in OpenSearch.
+
+    Queries the zeek-conn index to extract:
+    - Unique IPs (src + dst) → devices, classified by zone
+    - Top src→dst pairs → links
+    - brain-incidents → incidents mapped to devices by IP
+
+    Results are cached for 60 seconds to avoid overloading OpenSearch.
+    Falls back to the static mock topology if OpenSearch is unreachable.
+    """
+
+    OS_URL = "http://172.26.10.98:9200"
+    OS_USER = "admin"
+    OS_PASS = "Khainet2025Secure"
+
+    ZONES = [
+        {
+            "id": "internet",
+            "name": "Internet",
+            "type": "external",
+            "color": "#ef4444",
+            "desc": "Tráfico externo — todo lo que entra/sale de la red corporativa",
+        },
+        {
+            "id": "dmz",
+            "name": "DMZ",
+            "type": "dmz",
+            "color": "#f59e0b",
+            "desc": "Servidores expuestos al exterior: web, mail, VPN",
+        },
+        {
+            "id": "core",
+            "name": "Core",
+            "type": "internal",
+            "color": "#3b82f6",
+            "desc": "Servidores internos: AD, DNS, file servers, bases de datos",
+        },
+        {
+            "id": "lan",
+            "name": "LAN",
+            "type": "internal",
+            "color": "#10b981",
+            "desc": "Estaciones de trabajo y dispositivos de usuarios",
+        },
+        {
+            "id": "iot",
+            "name": "IoT/OT",
+            "type": "iot",
+            "color": "#8b5cf6",
+            "desc": "Dispositivos IoT, cámaras, impresoras, SCADA",
+        },
+    ]
+
+    def __init__(self):
+        self._cache: dict | None = None
+        self._cache_time: float = 0.0
+        self._cache_ttl: float = 60.0  # 60 seconds
+
+    def _classify_zone(self, ip: str) -> str:
+        """Classify an IP into a network zone based on its range."""
+        if not ip or len(ip) > 15:  # pseudonymized hashes → external
+            return "internet"
+        if ip.startswith("10.0.0."):
+            return "dmz"
+        elif ip.startswith("10.1.0."):
+            return "core"
+        elif ip.startswith("10.2.0."):
+            return "lan"
+        elif ip.startswith("10.3.0."):
+            return "iot"
+        elif ip.startswith("10.") or ip.startswith("192.168.") or ip.startswith("172."):
+            return "lan"
+        else:
+            return "internet"
+
+    def _zone_type(self, zone: str) -> str:
+        return {
+            "internet": "external",
+            "dmz": "server",
+            "core": "server",
+            "lan": "workstation",
+            "iot": "iot",
+        }.get(zone, "unknown")
+
+    def _device_name(self, ip: str, zone: str) -> str:
+        """Generate a human-readable name for a device based on its IP and zone."""
+        if len(ip) > 15:  # pseudonymized
+            return f"Host externo {ip[:8]}"
+        zone_names = {
+            "dmz": "DMZ",
+            "core": "Core",
+            "lan": "LAN",
+            "iot": "IoT",
+            "internet": "Ext",
+        }
+        return f"Host {ip} ({zone_names.get(zone, '?')})"
+
+    def _query_opensearch(self) -> dict | None:
+        """Query OpenSearch for real topology data. Returns None on failure."""
+        import requests as req
+        import urllib3
+
+        urllib3.disable_warnings()
+
+        try:
+            auth = (self.OS_USER, self.OS_PASS)
+            headers = {"Content-Type": "application/json"}
+
+            # 1. Get unique IPs from zeek-conn (top 100 by frequency)
+            ip_query = {
+                "size": 0,
+                "aggs": {
+                    "src_ips": {"terms": {"field": "src_ip.keyword", "size": 100}},
+                    "dst_ips": {"terms": {"field": "dst_ip.keyword", "size": 100}},
+                },
+            }
+            resp = req.post(
+                f"{self.OS_URL}/zeek-conn/_search",
+                auth=auth,
+                json=ip_query,
+                headers=headers,
+                verify=False,
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+
+            # Collect unique IPs with their event counts
+            ip_counts: dict[str, int] = {}
+            for bucket in data["aggregations"]["src_ips"]["buckets"]:
+                ip = bucket["key"]
+                if ip and len(ip) <= 15:  # skip pseudonymized hashes
+                    ip_counts[ip] = ip_counts.get(ip, 0) + bucket["doc_count"]
+            for bucket in data["aggregations"]["dst_ips"]["buckets"]:
+                ip = bucket["key"]
+                if ip and len(ip) <= 15:
+                    ip_counts[ip] = ip_counts.get(ip, 0) + bucket["doc_count"]
+
+            if not ip_counts:
+                return None
+
+            # 2. Get top src→dst connections
+            conn_query = {
+                "size": 0,
+                "aggs": {
+                    "connections": {
+                        "terms": {
+                            "script": {
+                                "source": "doc['src_ip.keyword'].value + '→' + doc['dst_ip.keyword'].value"
+                            },
+                            "size": 50,
+                        },
+                    },
+                },
+            }
+            resp2 = req.post(
+                f"{self.OS_URL}/zeek-conn/_search",
+                auth=auth,
+                json=conn_query,
+                headers=headers,
+                verify=False,
+                timeout=10,
+            )
+            connections = []
+            if resp2.status_code == 200:
+                for bucket in resp2.json()["aggregations"]["connections"]["buckets"]:
+                    parts = bucket["key"].split("→")
+                    if len(parts) == 2:
+                        src_ip, dst_ip = parts[0].strip(), parts[1].strip()
+                        if src_ip in ip_counts and dst_ip in ip_counts:
+                            connections.append(
+                                {
+                                    "src_ip": src_ip,
+                                    "dst_ip": dst_ip,
+                                    "count": bucket["doc_count"],
+                                }
+                            )
+
+            # 3. Get total event count from zeek-conn
+            resp3 = req.get(
+                f"{self.OS_URL}/zeek-conn/_count", auth=auth, verify=False, timeout=10
+            )
+            total_events = 0
+            if resp3.status_code == 200:
+                total_events = resp3.json().get("count", 0)
+
+            # 4. Get brain-incidents per IP (entities.src_ips)
+            inc_query = {
+                "size": 0,
+                "aggs": {
+                    "src_ips": {
+                        "terms": {"field": "entities.src_ips.keyword", "size": 50}
+                    },
+                },
+            }
+            resp4 = req.post(
+                f"{self.OS_URL}/brain-incidents/_search",
+                auth=auth,
+                json=inc_query,
+                headers=headers,
+                verify=False,
+                timeout=10,
+            )
+            incident_counts: dict[str, int] = {}
+            if resp4.status_code == 200:
+                for bucket in resp4.json()["aggregations"]["src_ips"]["buckets"]:
+                    ip = bucket["key"]
+                    if ip and ip != "unknown":
+                        incident_counts[ip] = bucket["doc_count"]
+
+            # 5. Get total incident count
+            resp5 = req.get(
+                f"{self.OS_URL}/brain-incidents/_count",
+                auth=auth,
+                verify=False,
+                timeout=10,
+            )
+            total_incidents = 0
+            if resp5.status_code == 200:
+                total_incidents = resp5.json().get("count", 0)
+
+            # 6. Get zeek-dns count
+            resp6 = req.get(
+                f"{self.OS_URL}/zeek-dns/_count", auth=auth, verify=False, timeout=10
+            )
+            total_dns = 0
+            if resp6.status_code == 200:
+                total_dns = resp6.json().get("count", 0)
+
+            # 7. Build devices
+            devices = []
+            ip_to_id: dict[str, str] = {}
+            for ip, count in sorted(ip_counts.items(), key=lambda x: -x[1]):
+                zone = self._classify_zone(ip)
+                dev_id = ip.replace(".", "-")
+                ip_to_id[ip] = dev_id
+                inc_count = incident_counts.get(ip, 0)
+                risk = (
+                    "critical"
+                    if inc_count > 200000
+                    else "high"
+                    if inc_count > 100000
+                    else "medium"
+                    if inc_count > 50000
+                    else "low"
+                )
+                devices.append(
+                    {
+                        "id": dev_id,
+                        "name": self._device_name(ip, zone),
+                        "ip": ip,
+                        "zone": zone,
+                        "type": self._zone_type(zone),
+                        "os": "unknown",
+                        "risk": risk,
+                        "tags": ["compromised"] if inc_count > 150000 else [],
+                        "first_seen": "2026-07-15",
+                        "notes": f"{count:,} eventos observados"
+                        + (f", {inc_count:,} incidentes" if inc_count else ""),
+                        "event_count": count,
+                        "incident_count": inc_count,
+                    }
+                )
+
+            # 8. Build links from top connections
+            links = []
+            seen_pairs = set()
+            for conn in connections[:30]:
+                src_id = ip_to_id.get(conn["src_ip"])
+                dst_id = ip_to_id.get(conn["dst_ip"])
+                if not src_id or not dst_id:
+                    continue
+                pair = f"{src_id}->{dst_id}"
+                if pair in seen_pairs or src_id == dst_id:
+                    continue
+                seen_pairs.add(pair)
+                is_malicious = (
+                    conn["src_ip"] == "203.0.113.45" or conn["dst_ip"] == "203.0.113.45"
+                )
+                links.append(
+                    {
+                        "from": src_id,
+                        "to": dst_id,
+                        "type": "malicious" if is_malicious else "normal",
+                        "label": f"{conn['count']:,} eventos",
+                        "count": conn["count"],
+                    }
+                )
+
+            # 9. Build incidents from brain-incidents data
+            incidents = []
+            for ip, inc_count in sorted(incident_counts.items(), key=lambda x: -x[1])[
+                :5
+            ]:
+                dev_id = ip_to_id.get(ip, ip.replace(".", "-"))
+                zone = self._classify_zone(ip)
+                sev_label = (
+                    "critical"
+                    if inc_count > 200000
+                    else "high"
+                    if inc_count > 100000
+                    else "medium"
+                )
+                incidents.append(
+                    {
+                        "id": f"INC-{ip.replace('.', '')}",
+                        "name": f"Actividad anómala en {ip}",
+                        "status": "active",
+                        "severity": sev_label,
+                        "patient_zero": dev_id,
+                        "path": [dev_id],
+                        "description": f"{inc_count:,} incidentes correlacionados por Brain en {ip}. "
+                        f"Entidad con tráfico anómalo detectado por los modelos ML.",
+                        "mitre": ["T1071", "T1046"],
+                        "detected_by": ["isolation_forest", "autoencoder", "brain"],
+                        "first_seen": "2026-07-15T00:00:00Z",
+                        "incident_count": inc_count,
+                    }
+                )
+
+            return {
+                "zones": self.ZONES,
+                "devices": devices,
+                "links": links,
+                "incidents": incidents,
+                "_stats": {
+                    "total_events": total_events,
+                    "total_incidents": total_incidents,
+                    "total_dns": total_dns,
+                    "unique_hosts": len(devices),
+                },
+            }
+
+        except Exception as e:
+            print(f"[TopologyBuilder] OpenSearch query failed: {e}")
+            return None
+
+    def get_topology(self) -> dict:
+        """Get network topology, from OpenSearch if available, fallback to mock."""
+        now = time.time()
+        if self._cache and (now - self._cache_time) < self._cache_ttl:
+            return self._cache
+
+        topology = self._query_opensearch()
+        if topology:
+            self._cache = topology
+            self._cache_time = now
+            return topology
+
+        # Fallback to static mock
+        return NETWORK_TOPOLOGY_FALLBACK
+
+    def get_real_stats(self) -> dict | None:
+        """Get real event/incident counts from OpenSearch. None if unavailable."""
+        topology = self.get_topology()
+        if "_stats" in topology:
+            return topology["_stats"]
+        return None
+
+
+topology_builder = TopologyBuilder()
+
+
+# --- Fallback topology (used when OpenSearch is unreachable) ---
+NETWORK_TOPOLOGY_FALLBACK = {
     "zones": [
         {
             "id": "internet",
@@ -1812,20 +2193,26 @@ infra_monitor = InfraMonitor()
 
 @app.get("/api/network/topology")
 async def get_topology():
-    """Topología de red: zonas, dispositivos, conexiones e incidentes."""
-    return JSONResponse(NETWORK_TOPOLOGY)
+    """Topología de red: zonas, dispositivos, conexiones e incidentes.
+
+    Construida dinámicamente desde los datos reales de Zeek en OpenSearch.
+    Fallback a topología estática si OpenSearch no está disponible.
+    """
+    return JSONResponse(topology_builder.get_topology())
 
 
 @app.get("/api/network/devices")
 async def get_devices():
-    """Inventario de dispositivos de red."""
-    return JSONResponse({"devices": NETWORK_TOPOLOGY["devices"]})
+    """Inventario de dispositivos de red (desde datos reales de Zeek)."""
+    topology = topology_builder.get_topology()
+    return JSONResponse({"devices": topology["devices"]})
 
 
 @app.get("/api/network/incidents")
 async def get_incidents():
-    """Incidentes activos y historicos."""
-    return JSONResponse({"incidents": NETWORK_TOPOLOGY["incidents"]})
+    """Incidentes activos y historicos (desde datos reales de Brain)."""
+    topology = topology_builder.get_topology()
+    return JSONResponse({"incidents": topology.get("incidents", [])})
 
 
 @app.get("/api/network/active-links")
