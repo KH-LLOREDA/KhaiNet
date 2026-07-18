@@ -1150,7 +1150,7 @@
             <div class="conn-dot" id="sidebar-conn-dot"></div>
             <span id="sidebar-conn-text">Conectado</span>
         </div>
-        <div>Tick: <span id="sidebar-tick">0</span> · v0.4</div>
+        <div>Tick: <span id="sidebar-tick">0</span> · v0.5</div>
     </div>
 </div>
 
@@ -1170,6 +1170,10 @@
             </div>
         </div>
         <div class="topbar-right">
+            <div class="status-badge" id="data-source-badge" style="background:rgba(6,182,212,0.1);border-color:rgba(6,182,212,0.3);color:var(--cyan);">
+                <div class="status-dot" style="background:var(--cyan);"></div>
+                <span id="data-source-text">OpenSearch</span>
+            </div>
             <div class="status-badge">
                 <div class="status-dot"></div>
                 <span id="model-status">Inicializando...</span>
@@ -1194,7 +1198,7 @@
                     <span class="info-box-toggle">▼</span>
                 </div>
                 <div class="info-box-body">
-                    <p>Este dashboard muestra el <strong>pipeline completo de KhaiNet</strong> funcionando en tiempo real con datos sintéticos. El sistema simula tráfico de red, lo procesa con 3 modelos de IA, y lo etiqueta automáticamente usando 5 fuentes independientes.</p>
+                    <p>Este dashboard muestra el <strong>pipeline completo de KhaiNet</strong> funcionando en tiempo real. Los <strong>KPIs, eventos, dispositivos y mapa de red</strong> se alimentan de datos reales extraídos de <strong>OpenSearch</strong> (logs de Zeek, incidentes de Brain) y <strong>Kafka</strong> (ML scores). El motor de demostración genera tráfico sintético que se envía a Kafka para mantener el pipeline activo.</p>
                     <ul>
                         <li><strong>KPIs</strong>: métricas globales del sistema (eventos procesados, anomalías detectadas, cobertura de etiquetado)</li>
                         <li><strong>Pipeline</strong>: diagrama del flujo de datos desde los sensores hasta el re-tuning de modelos</li>
@@ -1292,10 +1296,18 @@
 
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title">📡 Eventos en tiempo real — Scores por modelo</div>
-                    <span style="font-size:11px;color:var(--text-dim);">Top 30 por score unificado</span>
+                    <div class="card-title">🔬 ML Scores en tiempo real (Kafka)</div>
+                    <span style="font-size:11px;color:var(--text-dim);" id="ml-scores-count">Cargando...</span>
                 </div>
-                <div class="card-body" id="detection-events-body"><div class="empty">Esperando eventos...</div></div>
+                <div class="card-body" id="ml-scores-body"><div class="empty">Cargando ML scores de Kafka...</div></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">📡 Eventos de red en tiempo real (OpenSearch)</div>
+                    <span style="font-size:11px;color:var(--text-dim);">Últimos 30 eventos de zeek-conn</span>
+                </div>
+                <div class="card-body" id="realtime-events-body"><div class="empty">Cargando eventos de OpenSearch...</div></div>
             </div>
         </div>
 
@@ -1489,7 +1501,7 @@
         <div class="page" id="page-infrastructure">
             <div class="page-header">
                 <div class="page-title">Infraestructura</div>
-                <div class="page-desc">Stack KhaiNet en Portainer · 11 containers en docker02 · sensores reales + pipeline completo</div>
+                <div class="page-desc">Stack KhaiNet en Portainer · 13 containers en docker02 · sensores reales + pipeline completo + IA live</div>
             </div>
 
             <div class="info-box">
@@ -1499,13 +1511,13 @@
                     <span class="info-box-toggle">▼</span>
                 </div>
                 <div class="info-box-body">
-                    <p>El stack <strong>khainet</strong> agrupa <strong>11 containers</strong> desplegados en <strong>docker02</strong> (172.26.10.98) via Portainer Stacks. La red interna <code>khainet-network</code> (172.25.0.0/16) conecta todos los servicios:</p>
+                    <p>El stack <strong>khainet</strong> agrupa <strong>13 containers</strong> desplegados en <strong>docker02</strong> (172.26.10.98) via Portainer Stacks. La red interna <code>khainet-network</code> (172.25.0.0/16) conecta todos los servicios:</p>
                     <ul>
                         <li><strong>Sensores</strong>: Zeek (network), Suricata (IDS), Wazuh (HIDS), Filebeat (shipper) — capturan y procesan tráfico real</li>
                         <li><strong>Bus de mensajes</strong>: Kafka (KRaft) + Kafka-UI — conecta todos los componentes</li>
                         <li><strong>Almacenamiento</strong>: OpenSearch + Dashboards (búsqueda de logs), ClickHouse (analytics columnar)</li>
                         <li><strong>Pipeline</strong>: Kafka Connect (sinks a ClickHouse), Logstash (sink a OpenSearch)</li>
-                        <li><strong>IA</strong>: Brain (correlación) — se ejecuta en el demo engine</li>
+                        <li><strong>IA</strong>: Detection Consumer (ML models), Brain Consumer (correlación) — containers live</li>
                         <li><strong>Planificados</strong>: Shuffle (SOAR), TheHive (incident response), MISP (threat intel)</li>
                     </ul>
                     <p>El estado de los containers se consulta en tiempo real via Portainer API. Los connectors de Kafka Connect via REST API.</p>
@@ -1521,7 +1533,7 @@
                 <div class="card-body no-scroll">
                     <div class="grid grid-4" id="stack-summary-grid">
                         <div class="kpi-mini">
-                            <div class="kpi-mini-value" id="stack-total">11</div>
+                            <div class="kpi-mini-value" id="stack-total">13</div>
                             <div class="kpi-mini-label">Containers</div>
                         </div>
                         <div class="kpi-mini">
@@ -1588,7 +1600,7 @@
             <!-- Services grid -->
             <div class="page-subheader" style="margin:20px 0 12px;">
                 <div style="font-size:15px;font-weight:700;color:var(--text-bright);">Servicios del stack</div>
-                <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">11 containers desplegados + 3 planificados</div>
+                <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">13 containers desplegados + 3 planificados</div>
             </div>
             <div class="grid grid-3" id="infra-services-grid"></div>
         </div>
@@ -1643,6 +1655,9 @@ let infraServices = null;
 let showIncidentPaths = true;
 let selectedDevice = null;
 let activeLinks = [];  // Real-time active links from detection events
+let realtimeEvents = [];  // Real events from OpenSearch
+let realtimeMLScores = [];  // Real ML scores from Kafka
+let realtimeSourceStats = null;  // Real source stats from OpenSearch
 
 const KAFKA_TOPICS = [
     'zeek-conn', 'zeek-dns', 'zeek-http', 'zeek-ssl',
@@ -1781,6 +1796,21 @@ function updateAllPages(msg) {
     const stats = msg.stats || {};
     const sourceStats = msg.source_stats || {};
 
+    // Data source badge
+    const dsBadge = document.getElementById('data-source-badge');
+    const dsText = document.getElementById('data-source-text');
+    if (stats.data_source === 'opensearch') {
+        dsBadge.style.background = 'rgba(6,182,212,0.1)';
+        dsBadge.style.borderColor = 'rgba(6,182,212,0.3)';
+        dsBadge.style.color = 'var(--cyan)';
+        dsText.textContent = 'OpenSearch';
+    } else {
+        dsBadge.style.background = 'rgba(245,158,11,0.1)';
+        dsBadge.style.borderColor = 'rgba(245,158,11,0.3)';
+        dsBadge.style.color = 'var(--yellow)';
+        dsText.textContent = 'Sintético';
+    }
+
     // KPIs
     document.getElementById('kpi-events').textContent = fmtNum(stats.total_events || 0);
     document.getElementById('kpi-anomalies').textContent = fmtNum(stats.total_anomalies || 0);
@@ -1803,28 +1833,46 @@ function updateAllPages(msg) {
     document.getElementById('model-status').textContent =
         trainedCount === 3 ? '3 modelos activos' : `${trainedCount}/3 modelos activos`;
 
-    // Dashboard page
-    renderEvents(msg.events || [], 'events-body');
+    // Dashboard page — use real events if available, fall back to demo
+    if (realtimeEvents.length > 0) {
+        renderRealtimeEvents(realtimeEvents, 'events-body');
+    } else {
+        renderEvents(msg.events || [], 'events-body');
+    }
     renderLabels(msg.labels || [], 'labels-body');
     renderActiveLearning(msg.active_learning || [], 'al-body');
-    renderSourceStats(sourceStats, 'sources-body');
+
+    // Source stats — use real data if available
+    if (realtimeSourceStats) {
+        renderRealSourceStats(realtimeSourceStats, 'sources-body');
+    } else {
+        renderSourceStats(sourceStats, 'sources-body');
+    }
     renderModels(models, stats.thresholds || {}, 'models-body');
 
     // Detection page
     renderDetectionModels(models, stats.thresholds || {});
-    renderEvents(msg.events || [], 'detection-events-body', 30);
+    if (realtimeEvents.length > 0) {
+        renderRealtimeEvents(realtimeEvents, 'realtime-events-body', 30);
+    }
+    if (realtimeMLScores.length > 0) {
+        renderMLScores(realtimeMLScores, 'ml-scores-body');
+    }
 
     // Labeling page
-    renderSourceStats(sourceStats, 'labeling-sources-body');
+    if (realtimeSourceStats) {
+        renderRealSourceStats(realtimeSourceStats, 'labeling-sources-body');
+    } else {
+        renderSourceStats(sourceStats, 'labeling-sources-body');
+    }
     renderLabels(msg.labels || [], 'labeling-labels-body');
     renderActiveLearning(msg.active_learning || [], 'labeling-al-body');
 
     // Kafka
     if (stats.kafka) updateKafkaPanel(stats.kafka);
 
-    // Active links for network map
-    if (msg.active_links) {
-        activeLinks = msg.active_links;
+    // Active links for network map — use real data
+    if (activeLinks.length > 0) {
         // Re-render the network map if we're on the network page
         if (document.getElementById('page-network') && document.getElementById('page-network').classList.contains('active')) {
             renderNetworkMap();
@@ -2089,7 +2137,7 @@ function updateKafkaPanel(kafkaStatus) {
         </div>`;
     }
     topicsList.innerHTML = html;
-    document.getElementById('kafka-topics-count').textContent = `${activeCount} / 8`;
+    document.getElementById('kafka-topics-count').textContent = `${activeCount} / ${KAFKA_TOPICS.length}`;
     document.getElementById('kafka-ui-link').style.display = connected ? 'inline-flex' : 'none';
 }
 
@@ -2733,6 +2781,184 @@ function loadArchitecture() {
 }
 
 // =========================================================================
+// REALTIME DATA — eventos, ML scores y source stats reales
+// =========================================================================
+async function pollRealtimeData() {
+    const promises = [];
+
+    // Fetch real events from OpenSearch
+    promises.push(
+        fetch('/api/realtime/events').then(r => r.json()).then(data => {
+            if (data.events && data.events.length > 0) {
+                realtimeEvents = data.events;
+            }
+        }).catch(() => {})
+    );
+
+    // Fetch real ML scores from Kafka
+    promises.push(
+        fetch('/api/realtime/ml-scores').then(r => r.json()).then(data => {
+            if (data.scores && data.scores.length > 0) {
+                realtimeMLScores = data.scores;
+            }
+        }).catch(() => {})
+    );
+
+    // Fetch real source stats from OpenSearch
+    promises.push(
+        fetch('/api/realtime/source-stats').then(r => r.json()).then(data => {
+            if (data && data.suricata !== undefined) {
+                realtimeSourceStats = data;
+            }
+        }).catch(() => {})
+    );
+
+    // Fetch real active links from OpenSearch
+    promises.push(
+        fetch('/api/realtime/active-links').then(r => r.json()).then(data => {
+            if (data.active_links && data.active_links.length > 0) {
+                activeLinks = data.active_links;
+            }
+        }).catch(() => {})
+    );
+
+    await Promise.all(promises);
+
+    // Re-render pages with real data
+    if (lastMsg.stats) {
+        updateAllPages(lastMsg);
+    }
+}
+
+// Render real events from OpenSearch
+function renderRealtimeEvents(events, targetId, limit = 15) {
+    const body = document.getElementById(targetId);
+    if (!body) return;
+    if (!events.length) { body.innerHTML = '<div class="empty">Sin eventos reales disponibles.</div>'; return; }
+
+    let html = `<div class="event-row" style="font-weight:600;color:var(--text-dim);font-size:10px;text-transform:uppercase;cursor:default;border-bottom:1px solid var(--border);">
+        <div>Time</div><div>Src → Dst</div><div>Proto</div><div>Port</div><div>Bytes</div><div>State</div><div>Service</div>
+    </div>`;
+
+    for (const evt of events.slice(0, limit)) {
+        const totalBytes = (evt.orig_bytes || 0) + (evt.resp_bytes || 0);
+        const bytesStr = totalBytes > 1e6 ? (totalBytes/1e6).toFixed(1)+'MB' : totalBytes > 1e3 ? (totalBytes/1e3).toFixed(0)+'KB' : totalBytes+'B';
+        const isSusp = evt.conn_state === 'S0' || evt.conn_state === 'REJ' || totalBytes > 1e6;
+        const cls = isSusp ? 'event-row anomaly' : 'event-row';
+        const stateBadge = evt.conn_state === 'SF' ? '<span class="badge badge-normal">SF</span>'
+            : evt.conn_state === 'S0' ? '<span class="badge badge-anomaly">S0</span>'
+            : evt.conn_state === 'REJ' ? '<span class="badge badge-anomaly">REJ</span>'
+            : `<span class="badge badge-unlabeled">${evt.conn_state || '?'}</span>`;
+        const ts = evt.timestamp ? new Date(evt.timestamp).toLocaleTimeString('es-ES', {hour12:false}) : '—';
+
+        html += `<div class="${cls}">
+            <div class="event-time">${ts}</div>
+            <div class="event-ip">${evt.src_ip} → ${evt.dst_ip}</div>
+            <div class="score-text">${evt.protocol || '?'}</div>
+            <div class="score-text">${evt.dst_port || '?'}</div>
+            <div class="score-text">${bytesStr}</div>
+            <div>${stateBadge}</div>
+            <div class="score-text">${evt.service || '—'}</div>
+        </div>`;
+    }
+    body.innerHTML = html;
+}
+
+// Render real ML scores from Kafka
+function renderMLScores(scores, targetId) {
+    const body = document.getElementById(targetId);
+    if (!body) return;
+    if (!scores.length) { body.innerHTML = '<div class="empty">Sin ML scores disponibles.</div>'; return; }
+
+    const countEl = document.getElementById('ml-scores-count');
+    if (countEl) countEl.textContent = `${scores.length} scores (Kafka ml-scores)`;
+
+    let html = `<div class="event-row" style="font-weight:600;color:var(--text-dim);font-size:10px;text-transform:uppercase;cursor:default;border-bottom:1px solid var(--border);grid-template-columns:60px 1fr 90px 70px 70px 70px 80px;">
+        <div>Time</div><div>Src IP</div><div>Model</div><div>Score</div><div>Sev</div><div>Conf</div><div>Anomaly</div>
+    </div>`;
+
+    for (const s of scores.slice(0, 30)) {
+        const model = s.ml_model || '?';
+        const score = s.ml_score || 0;
+        const sev = s.severity_raw || 0;
+        const conf = s.confidence || 0;
+        const isAnom = s.ml_features?.is_anomaly || false;
+        const cls = isAnom ? 'event-row anomaly' : 'event-row';
+        const anomBadge = isAnom ? '<span class="badge badge-anomaly">YES</span>' : '<span class="badge badge-normal">NO</span>';
+        const ts = s.timestamp ? new Date(s.timestamp).toLocaleTimeString('es-ES', {hour12:false}) : '—';
+        const modelShort = model === 'isolation_forest' ? 'IF' : model === 'autoencoder' ? 'AE' : model === 'hmm' ? 'HMM' : model.substring(0,4).toUpperCase();
+
+        html += `<div class="${cls}" style="grid-template-columns:60px 1fr 90px 70px 70px 70px 80px;">
+            <div class="event-time">${ts}</div>
+            <div class="event-ip">${s.src_ip || '?'}</div>
+            <div class="score-text">${modelShort}</div>
+            <div class="score-text ${scoreColor(score)}"><b>${score.toFixed(3)}</b></div>
+            <div class="score-text">${sev}</div>
+            <div class="score-text">${(conf*100).toFixed(0)}%</div>
+            <div>${anomBadge}</div>
+        </div>`;
+    }
+    body.innerHTML = html;
+}
+
+// Render real source stats from OpenSearch
+function renderRealSourceStats(stats, targetId) {
+    const body = document.getElementById(targetId);
+    if (!body) return;
+    const sourceColors = { suricata: '#ef4444', wazuh: '#f97316', misp: '#8b5cf6', brain: '#3b82f6', analyst: '#10b981' };
+    const sourceNames = { suricata: 'Suricata (IDS)', wazuh: 'Wazuh (HIDS)', misp: 'MISP (Threat Intel)', brain: 'Brain (IA)', analyst: 'Analyst (Humano)' };
+    const sourceDescs = {
+        suricata: 'IDS basado en reglas. Detecta patrones conocidos (signatures).',
+        wazuh: 'HIDS de endpoints. File integrity, rootkits, logs de auth.',
+        misp: 'Threat intelligence. IOCs compartidos (IPs, dominios maliciosos).',
+        brain: 'Correlación de IA. Detecta patrones multi-evento.',
+        analyst: 'Revisión humana. Override con peso 2.0.',
+    };
+
+    let html = '';
+    for (const name of ['suricata', 'wazuh', 'misp', 'brain', 'analyst']) {
+        const s = stats[name];
+        const color = sourceColors[name];
+        if (s && s.count > 0) {
+            html += `<div class="source-row">
+                <div class="source-name"><div class="source-icon" style="background:${color};"></div>
+                    <div><div>${sourceNames[name]}</div><div style="font-size:11px;color:var(--text-dim);font-weight:400;">${sourceDescs[name]}</div></div>
+                </div>
+               <div class="source-stats-mini">
+                    <span>Total: <b>${fmtNum(s.count)}</b></span>
+                    <span style="color:var(--red);">+${fmtNum(s.positive)}</span>
+                    <span>Conf: ${s.avg_confidence}</span>
+               </div>
+            </div>`;
+        } else {
+            const count = s ? s.count : 0;
+            html += `<div class="source-row">
+                <div class="source-name"><div class="source-icon" style="background:${color};opacity:0.3;"></div>
+                    <div><div>${sourceNames[name]}</div><div style="font-size:11px;color:var(--text-dim);font-weight:400;">${sourceDescs[name]}</div></div>
+                </div>
+                <div class="source-stats-mini" style="opacity:0.4;"><span>${count > 0 ? fmtNum(count) : 'Sin datos'}${count > 0 ? ' (OpenSearch)' : ''}</span></div>
+            </div>`;
+        }
+    }
+
+    // Add ML model breakdown if available
+    const mlModels = stats._ml_models || {};
+    const modelKeys = Object.keys(mlModels);
+    if (modelKeys.length > 0) {
+        html += `<div style="padding:10px 12px;border-top:1px solid var(--border);margin-top:8px;">
+            <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:6px;">ML Models (desde brain-incidents)</div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;">`;
+        for (const [model, count] of Object.entries(mlModels)) {
+            const color = model === 'isolation_forest' ? 'var(--green)' : model === 'autoencoder' ? 'var(--accent)' : 'var(--purple)';
+            html += `<span class="tag-chip" style="color:${color};">${model}: ${fmtNum(count)}</span>`;
+        }
+        html += `</div></div>`;
+    }
+
+    body.innerHTML = html;
+}
+
+// =========================================================================
 // ANALYST FEEDBACK
 // =========================================================================
 async function sendFeedback(eventId, label) {
@@ -2762,6 +2988,10 @@ async function pollKafkaStatus() {
 connect();
 setInterval(pollKafkaStatus, 5000);
 setTimeout(pollKafkaStatus, 2000);
+
+// Poll real data from OpenSearch/Kafka every 10 seconds
+setTimeout(pollRealtimeData, 3000);
+setInterval(pollRealtimeData, 10000);
 
 // Poll infra status when on infrastructure page
 setInterval(() => {

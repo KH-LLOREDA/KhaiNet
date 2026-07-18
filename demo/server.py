@@ -908,28 +908,35 @@ class DemoEngine:
         return result
 
     def get_stats(self) -> dict[str, Any]:
-        # Try to get real counts from OpenSearch
-        real_stats = topology_builder.get_real_stats()
+        # Try to get real counts from OpenSearch via RealtimeData
+        real_stats = realtime.get_real_stats()
         if real_stats:
             total_events = real_stats["total_events"]
             total_incidents = real_stats["total_incidents"]
             unique_hosts = real_stats["unique_hosts"]
+            total_anomalies = real_stats.get("total_anomalies", 0)
+            # "Labeled" = incidents that Brain has correlated (each incident is a label)
+            total_labeled = total_incidents
+            data_source = "opensearch"
         else:
             total_events = self.total_events
             total_incidents = 0
             unique_hosts = 0
+            total_anomalies = self.total_anomalies
+            total_labeled = self.total_labeled
+            data_source = "synthetic"
 
         return {
             "tick": self.tick_count,
             "total_events": total_events,
-            "total_anomalies": self.total_anomalies,
-            "total_labeled": self.total_labeled,
-            "total_unlabeled": total_events - self.total_labeled,
+            "total_anomalies": total_anomalies,
+            "total_labeled": total_labeled,
+            "total_unlabeled": max(0, total_events - total_labeled),
             "total_incidents": total_incidents,
             "unique_hosts": unique_hosts,
             "analyst_reviews": self.total_analyst_reviews,
             "is_trained": self.is_trained,
-            "data_source": "opensearch" if real_stats else "synthetic",
+            "data_source": data_source,
             "models": {
                 "isolation_forest": self.orchestrator.if_detector.model is not None
                 if self.orchestrator
@@ -2189,6 +2196,415 @@ class InfraMonitor:
 
 
 infra_monitor = InfraMonitor()
+
+
+# ===========================================================================
+# RealtimeData — consulta datos reales de OpenSearch y Kafka para el dashboard
+# ===========================================================================
+
+
+class RealtimeData:
+    """Proporciona datos reales del pipeline (eventos, scores, stats) desde
+    OpenSearch y Kafka UI API. Sustituye los datos sintéticos del DemoEngine
+    en el dashboard."""
+
+    OS_URL = "http://172.26.10.98:9200"
+    OS_USER = "admin"
+    OS_PASS = "Khainet2025Secure"
+    KAFKA_UI = "http://172.26.10.98:8089"
+
+    def __init__(self):
+        self._events_cache: list[dict] = []
+        self._events_cache_time: float = 0.0
+        self._stats_cache: dict | None = None
+        self._stats_cache_time: float = 0.0
+        self._source_stats_cache: dict | None = None
+        self._source_stats_cache_time: float = 0.0
+        self._ml_scores_cache: list[dict] = []
+        self._ml_scores_cache_time: float = 0.0
+        self._cache_ttl: float = 10.0  # 10 seconds
+
+    def _os_search(self, index: str, body: dict, timeout: int = 10) -> dict | None:
+        """Execute an OpenSearch query. Returns None on failure."""
+        import requests as req
+        import urllib3
+
+        urllib3.disable_warnings()
+        try:
+            resp = req.post(
+                f"{self.OS_URL}/{index}/_search",
+                auth=(self.OS_USER, self.OS_PASS),
+                json=body,
+                headers={"Content-Type": "application/json"},
+                verify=False,
+                timeout=timeout,
+            )
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception:
+            pass
+        return None
+
+    def _os_count(self, index: str, timeout: int = 10) -> int:
+        import requests as req
+        import urllib3
+
+        urllib3.disable_warnings()
+        try:
+            resp = req.get(
+                f"{self.OS_URL}/{index}/_count",
+                auth=(self.OS_USER, self.OS_PASS),
+                verify=False,
+                timeout=timeout,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("count", 0)
+        except Exception:
+            pass
+        return 0
+
+    def _kafka_ui_messages(self, topic: str, limit: int = 50) -> list[dict]:
+        """Read messages from a Kafka topic via Kafka UI API (SSE stream)."""
+        import json as _json
+        import urllib.request
+
+        url = f"{self.KAFKA_UI}/api/clusters/khainet/topics/{topic}/messages?limit={limit}"
+        messages = []
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode("utf-8")
+            for line in raw.split("\n"):
+                if line.startswith("data:"):
+                    try:
+                        chunk = _json.loads(line[5:].strip())
+                        if chunk.get("type") == "MESSAGE" and chunk.get("message"):
+                            msg = chunk["message"]
+                            value = msg.get("content", msg.get("value", {}))
+                            if isinstance(value, str):
+                                value = _json.loads(value)
+                            if value:
+                                messages.append(value)
+                    except (_json.JSONDecodeError, KeyError):
+                        pass
+        except Exception:
+            pass
+        return messages
+
+    def get_events(self, limit: int = 30) -> list[dict]:
+        """Get recent network events from OpenSearch zeek-conn index."""
+        now = time.time()
+        if self._events_cache and (now - self._events_cache_time) < self._cache_ttl:
+            return self._events_cache[:limit]
+
+        # Query latest events sorted by ingest_ts descending
+        body = {
+            "size": limit,
+            "sort": [{"ingest_ts": "desc"}],
+            "query": {"match_all": {}},
+        }
+        data = self._os_search("zeek-conn", body)
+        if not data:
+            return self._events_cache[:limit]
+
+        events = []
+        for hit in data.get("hits", {}).get("hits", []):
+            src = hit["_source"]
+            events.append(
+                {
+                    "id": src.get("uid", ""),
+                    "timestamp": src.get("ingest_ts", src.get("timestamp", "")),
+                    "src_ip": src.get("src_ip", ""),
+                    "dst_ip": src.get("dst_ip", ""),
+                    "src_port": src.get("src_port", 0),
+                    "dst_port": src.get("dst_port", 0),
+                    "protocol": src.get("protocol", ""),
+                    "service": src.get("service", ""),
+                    "duration": src.get("duration", 0),
+                    "orig_bytes": src.get("orig_bytes", 0),
+                    "resp_bytes": src.get("resp_bytes", 0),
+                    "conn_state": src.get("conn_state", ""),
+                    "orig_pkts": src.get("orig_pkts", 0),
+                    "resp_pkts": src.get("resp_pkts", 0),
+                }
+            )
+
+        self._events_cache = events
+        self._events_cache_time = now
+        return events[:limit]
+
+    def get_ml_scores(self, limit: int = 50) -> list[dict]:
+        """Get recent ML scores from Kafka ml-scores topic."""
+        now = time.time()
+        if (
+            self._ml_scores_cache
+            and (now - self._ml_scores_cache_time) < self._cache_ttl
+        ):
+            return self._ml_scores_cache[:limit]
+
+        scores = self._kafka_ui_messages("ml-scores", limit)
+        # Sort by timestamp descending
+        scores.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        self._ml_scores_cache = scores
+        self._ml_scores_cache_time = now
+        return scores[:limit]
+
+    def get_real_stats(self) -> dict | None:
+        """Get real KPIs from OpenSearch. Returns None if unavailable."""
+        now = time.time()
+        if self._stats_cache and (now - self._stats_cache_time) < self._cache_ttl:
+            return self._stats_cache
+
+        total_events = self._os_count("zeek-conn")
+        total_dns = self._os_count("zeek-dns")
+        total_incidents = self._os_count("brain-incidents")
+
+        if total_events == 0 and total_incidents == 0:
+            return None
+
+        # Count anomalies: incidents with severity_label != "low"
+        anomaly_data = self._os_search(
+            "brain-incidents",
+            {
+                "size": 0,
+                "query": {
+                    "bool": {"must_not": [{"term": {"severity_label.keyword": "low"}}]}
+                },
+            },
+        )
+        total_anomalies = 0
+        if anomaly_data:
+            total_anomalies = (
+                anomaly_data.get("hits", {}).get("total", {}).get("value", 0)
+            )
+
+        # Count high-severity incidents
+        high_data = self._os_search(
+            "brain-incidents",
+            {
+                "size": 0,
+                "query": {
+                    "bool": {"must_not": [{"term": {"severity_label.keyword": "low"}}]}
+                },
+                "aggs": {
+                    "sev_labels": {
+                        "terms": {"field": "severity_label.keyword", "size": 10}
+                    }
+                },
+            },
+        )
+        severity_dist = {}
+        if high_data:
+            for b in (
+                high_data.get("aggregations", {})
+                .get("sev_labels", {})
+                .get("buckets", [])
+            ):
+                severity_dist[b["key"]] = b["doc_count"]
+
+        # Get unique hosts from topology builder
+        topology = topology_builder.get_topology()
+        unique_hosts = len(topology.get("devices", []))
+
+        stats = {
+            "total_events": total_events,
+            "total_dns": total_dns,
+            "total_incidents": total_incidents,
+            "total_anomalies": total_anomalies,
+            "unique_hosts": unique_hosts,
+            "severity_distribution": severity_dist,
+            "data_source": "opensearch",
+        }
+
+        self._stats_cache = stats
+        self._stats_cache_time = now
+        return stats
+
+    def get_source_stats(self) -> dict | None:
+        """Get real source statistics from brain-incidents in OpenSearch.
+
+        Counts alerts by source_type (detection_consumer, suricata, wazuh, etc.)
+        within brain-incidents, and by ml_model.
+        """
+        now = time.time()
+        if (
+            self._source_stats_cache
+            and (now - self._source_stats_cache_time) < self._cache_ttl
+        ):
+            return self._source_stats_cache
+
+        # Aggregate by source_type within brain-incidents alerts
+        data = self._os_search(
+            "brain-incidents",
+            {
+                "size": 0,
+                "aggs": {
+                    "source_types": {
+                        "terms": {"field": "alerts.source_type.keyword", "size": 20}
+                    },
+                    "ml_models": {
+                        "terms": {"field": "alerts.ml_model.keyword", "size": 20}
+                    },
+                },
+            },
+        )
+
+        if not data:
+            return None
+
+        aggs = data.get("aggregations", {})
+        source_types = {}
+        for b in aggs.get("source_types", {}).get("buckets", []):
+            source_types[b["key"]] = b["doc_count"]
+
+        ml_models = {}
+        for b in aggs.get("ml_models", {}).get("buckets", []):
+            ml_models[b["key"]] = b["doc_count"]
+
+        # Map to the 5-source format the frontend expects
+        # detection_consumer → brain (correlation)
+        # suricata → suricata
+        # wazuh → wazuh
+        stats = {
+            "suricata": {
+                "count": source_types.get("suricata", 0),
+                "positive": source_types.get("suricata", 0),
+                "negative": 0,
+                "abstain": 0,
+                "avg_confidence": 0.8,
+            },
+            "wazuh": {
+                "count": source_types.get("wazuh", 0),
+                "positive": source_types.get("wazuh", 0),
+                "negative": 0,
+                "abstain": 0,
+                "avg_confidence": 0.7,
+            },
+            "misp": {
+                "count": 0,
+                "positive": 0,
+                "negative": 0,
+                "abstain": 0,
+                "avg_confidence": 0,
+            },
+            "brain": {
+                "count": source_types.get("detection_consumer", 0)
+                + source_types.get("anomaly", 0),
+                "positive": source_types.get("detection_consumer", 0)
+                + source_types.get("anomaly", 0),
+                "negative": 0,
+                "abstain": 0,
+                "avg_confidence": 0.5,
+            },
+            "analyst": {
+                "count": 0,
+                "positive": 0,
+                "negative": 0,
+                "abstain": 0,
+                "avg_confidence": 0,
+            },
+            "_ml_models": ml_models,
+            "_source_types": source_types,
+        }
+
+        self._source_stats_cache = stats
+        self._source_stats_cache_time = now
+        return stats
+
+    def get_active_links(self, limit: int = 20) -> list[dict]:
+        """Derive active links from recent zeek-conn events with high byte transfer."""
+        events = self.get_events(50)
+        if not events:
+            return []
+
+        # Build device IP mapping from topology
+        topology = topology_builder.get_topology()
+        ip_to_id = {d["ip"]: d["id"] for d in topology.get("devices", [])}
+
+        links = []
+        seen = set()
+        for evt in events:
+            src_ip = evt.get("src_ip", "")
+            dst_ip = evt.get("dst_ip", "")
+            if not src_ip or not dst_ip:
+                continue
+            src_dev = ip_to_id.get(src_ip)
+            dst_dev = ip_to_id.get(dst_ip)
+            if not src_dev or not dst_dev or src_dev == dst_dev:
+                continue
+            pair = f"{src_dev}->{dst_dev}"
+            if pair in seen:
+                continue
+            seen.add(pair)
+            # Score based on bytes transferred (heuristic)
+            orig_bytes = evt.get("orig_bytes", 0) or 0
+            resp_bytes = evt.get("resp_bytes", 0) or 0
+            total_bytes = orig_bytes + resp_bytes
+            # Normalize: >1MB = high score, >100KB = medium, else low
+            if total_bytes > 1_000_000:
+                score = 0.85
+            elif total_bytes > 100_000:
+                score = 0.55
+            else:
+                score = 0.25
+            is_anomaly = evt.get("conn_state") in ("S0", "REJ", "S1") or score > 0.7
+            links.append(
+                {
+                    "from": src_dev,
+                    "to": dst_dev,
+                    "score": score,
+                    "is_anomaly": is_anomaly,
+                    "timestamp": evt.get("timestamp", ""),
+                    "src_ip": src_ip,
+                    "dst_ip": dst_ip,
+                    "bytes": total_bytes,
+                }
+            )
+            if len(links) >= limit:
+                break
+        return links
+
+
+realtime = RealtimeData()
+
+
+@app.get("/api/realtime/events")
+async def get_realtime_events():
+    """Últimos eventos de red reales desde OpenSearch (zeek-conn)."""
+    events = realtime.get_events(30)
+    return JSONResponse(
+        {"events": events, "total": len(events), "source": "opensearch"}
+    )
+
+
+@app.get("/api/realtime/stats")
+async def get_realtime_stats():
+    """KPIs reales desde OpenSearch."""
+    stats = realtime.get_real_stats()
+    return JSONResponse(stats or {"data_source": "unavailable"})
+
+
+@app.get("/api/realtime/source-stats")
+async def get_realtime_source_stats():
+    """Estadísticas reales de fuentes de etiquetas desde OpenSearch."""
+    stats = realtime.get_source_stats()
+    return JSONResponse(stats or {"data_source": "unavailable"})
+
+
+@app.get("/api/realtime/ml-scores")
+async def get_realtime_ml_scores():
+    """Últimos ML scores reales desde Kafka."""
+    scores = realtime.get_ml_scores(50)
+    return JSONResponse({"scores": scores, "total": len(scores), "source": "kafka"})
+
+
+@app.get("/api/realtime/active-links")
+async def get_realtime_active_links():
+    """Enlaces activos derivados de eventos reales de OpenSearch."""
+    links = realtime.get_active_links(20)
+    return JSONResponse(
+        {"active_links": links, "total": len(links), "source": "opensearch"}
+    )
 
 
 @app.get("/api/network/topology")
